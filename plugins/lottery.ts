@@ -9,7 +9,9 @@ import type { TelegramClient } from "@mtcute/node";
 import { html } from "@mtcute/html-parser";
 import { getPrefixes } from "@utils/pluginManager";
 import { logger } from "@utils/logger";
+import { getErrorMessage } from "@utils/errorHelpers";
 import { htmlEscape } from "@utils/htmlEscape";
+import { sleep } from "@utils/asyncHelpers";
 
 // Get command prefixes
 const prefixes = getPrefixes();
@@ -677,7 +679,7 @@ async function distributePrizes(client: TelegramClient, lottery: LotteryConfigRo
         const winnerRecord = getLotteryWinners(lottery.id).find(w => w.user_id === winner.user_id);
         if (winnerRecord) {
           await sendPrizeToWinner(client, winner, winnerRecord.prize_text ?? '', lottery);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limiting
+          await sleep(1000); // Rate limiting
         }
       }
     }

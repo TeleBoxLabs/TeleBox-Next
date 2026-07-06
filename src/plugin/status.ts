@@ -14,6 +14,7 @@ import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import type { ResourceStats } from "@utils/generationContext";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";
+import { sleep } from "@utils/asyncHelpers";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -714,7 +715,7 @@ Scan Time: ${scanTime}ms
     try {
       const startUsage = process.cpuUsage();
       const startTime = Date.now();
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sleep(100);
       const endUsage = process.cpuUsage(startUsage);
       const endTime = Date.now();
       const elapsed = (endTime - startTime) / 1000;

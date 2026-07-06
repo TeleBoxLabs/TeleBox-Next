@@ -6,6 +6,7 @@
 import { TelegramClient } from "@mtcute/node";
 import type { InputPeerLike } from "@mtcute/node";
 import { logger } from "@utils/logger";
+import { sleep } from "./asyncHelpers";
 
 /**
  * 解封用户 - 移除所有限制
@@ -76,7 +77,7 @@ export async function kickUser(
     if (!banned) return false;
 
     // 等待一下确保生效
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await sleep(500);
 
     // 立即解封
     return await unbanUser(client, channel, user);
@@ -211,7 +212,7 @@ export async function batchUnbanUsers(
 
       // 每个操作之间添加少量延迟避免频率限制
       if (delayMs > 0) {
-        await new Promise((r) => setTimeout(r, delayMs));
+        await sleep(delayMs);
       }
     })
   );

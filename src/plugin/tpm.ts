@@ -9,6 +9,7 @@ import fs from "fs";
 import axios from "axios";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";
+import { sleep } from "@utils/asyncHelpers";
 import type { MtcuteMessageContext, MtcuteFileLocation } from "@utils/mtcuteTypes";
 
 import type { MessageContext } from "@mtcute/dispatcher";
@@ -303,7 +304,7 @@ async function lifecycleDelay(ms: number, label: string): Promise<void> {
     await lifecycle.delay(ms, { label });
     return;
   }
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await sleep(ms);
 }
 
 async function fetchWithRetry<T>(

@@ -13,6 +13,7 @@ import { pipeline } from "stream/promises";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";
 import { htmlEscape } from "@utils/htmlEscape";
+import { sleep } from "@utils/asyncHelpers";
 import type { InputMediaLike } from "@mtcute/core";
 import type { TelegramClient } from "@mtcute/node";
 
@@ -79,7 +80,7 @@ async function withRetry<T>(
         throw error;
       }
       const delay = CONFIG.RETRY_BASE_DELAY * Math.pow(2, attempt - 1);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await sleep(delay);
     }
   }
   throw lastError;
@@ -131,7 +132,7 @@ class CosplayScraper {
           !errorMessage.includes("只有") &&
           !errorMessage.includes("未找到")
         ) {
-          await new Promise((r) => setTimeout(r, Math.min((attempt + 1) * 1000, 3000)));
+          await sleep(Math.min((attempt + 1) * 1000, 3000));
         }
       }
     }
