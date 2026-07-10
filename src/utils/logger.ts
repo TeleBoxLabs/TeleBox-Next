@@ -110,6 +110,9 @@ class Logger {
       }
       return String(arg);
     });
+    // Use util.format for the actual message part to handle printf-style formatting
+    // But keep original args for GramJS detection which needs the raw format string
+    const formattedMessage = util.format(...args);
     
     // 尝试获取调用者信息
     let caller = "";
@@ -152,7 +155,7 @@ class Logger {
           case "ERROR": level = "ERROR"; levelColor = COLORS.red; levelIcon = "❌"; break;
         }
         caller = "";
-        msgParts = [gramMsg];
+        msgParts = [formattedMessage];
         gramMatched = true;
         // Restore forced level when downgrade scenario — keep our WARN level, not the detected ERROR
         if (forceLevel && forcedLevel !== null) {
@@ -176,7 +179,7 @@ class Logger {
             case "ERROR": level = "ERROR"; levelColor = COLORS.red; levelIcon = "❌"; break;
           }
           caller = "";
-          msgParts = [gramMsg];
+          msgParts = [formattedMessage];
           gramMatched = true;
           // Restore forced level when downgrade scenario
           if (forceLevel && forcedLevel !== null) {
@@ -192,7 +195,7 @@ class Logger {
     const levelLabel = `${levelColor}[${level}]${COLORS.reset}`;
     const timeLabel = `${COLORS.gray}[${timestamp}]${COLORS.reset}`;
     
-    return `${timeLabel} ${levelLabel}${contextStr}${caller} ${msgParts.join(' ')}`;
+    return `${timeLabel} ${levelLabel}${contextStr}${caller} ${formattedMessage}`;
   }
 
   // 从原始 console 参数中尝试推断 GramJS 的日志等级（若存在）
@@ -214,22 +217,10 @@ class Logger {
     }
     return null;
   }
-
-  /**
-   * Serialize console arguments into a single message string for pattern matching.
-   */
   private static serializeArgs(args: ReadonlyArray<unknown>): string {
-    return args
-      .map(a =>
-        typeof a === 'string'
-          ? a
-          : a instanceof Error
-            ? `${a.message} ${a.stack ?? ''}`
-            : a && typeof a === 'object' && 'message' in a
-              ? String((a as { message: unknown }).message)
-              : ''
-      )
-      .join(' ');
+    // Use util.format to properly handle printf-style format strings
+    // This replaces %d, %s, %j, %o, %O placeholders with their corresponding arguments
+    return util.format(...args);
   }
 
   /**
@@ -339,6 +330,8 @@ class Logger {
 
   public warn(...args: unknown[]): void {
     if (this.level <= LogLevel.WARNING) {
+      // Downgrade known non-actionable Telegram RPC errors (e.g. "difference too long")
+      if (this.handleChannelGapFailure(args)) return;
       Logger.originalWarn(this.formatLog('WARN ', args));
     }
   }

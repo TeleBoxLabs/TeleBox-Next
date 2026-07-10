@@ -13,6 +13,8 @@ import { logger } from "@utils/logger";
 process.on("unhandledRejection", (reason: unknown) => {
   const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
   logger.error(`[FATAL] Unhandled promise rejection: ${message}`);
+  // Exit after logging so PM2 can restart cleanly
+  process.exit(1);
 });
 
 process.on("uncaughtException", (error: Error) => {

@@ -14,6 +14,7 @@ import { reloadRuntime } from "@utils/runtimeManager";
 import { logger } from "@utils/logger";
 import { htmlEscape } from "@utils/htmlEscape";
 import { getErrorMessage } from "@utils/errorHelpers";
+import { cleanupStaleChannels } from "@utils/channelGapBreaker";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -400,6 +401,16 @@ class ReloadPlugin extends Plugin {
       cron: "0 * * * *",
       description: "内存监控 - 检查内存占用并自动重启",
       handler: async () => await memoryMonitorTask()
+    },
+    channelGapBreakerCleanup: {
+      cron: "0 */6 * * *",
+      description: "清理陈旧的频道断路器记录",
+      handler: async () => {
+        const removed = cleanupStaleChannels();
+        if (removed > 0) {
+          logger.info(`[ChannelGapBreaker] Cleaned up ${removed} stale channel entries`);
+        }
+      }
     }
   };
   private lastReloadMemoryMb: number | null = null;
