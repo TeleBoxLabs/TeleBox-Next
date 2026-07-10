@@ -132,6 +132,51 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
     { label: "runtime:initialize-client-session" }
   );
   runtime.meId = sessionInfo.meId;
+
+  // Connection watchdog: if the underlying client reports disconnected (offline)
+  // and stays that way beyond the grace period, trigger a full runtime reload so
+  // the dispatcher, plugin lifecycle, and mtcute client are all rebuilt on a fresh
+  // generation instead of being stuck on a dead socket.
+  //
+  // mtcute exposes connection state on `client.onConnectionState`, an
+  // `Emitter<ConnectionState>` where ConnectionState = 'offline' | 'connecting' |
+  // 'updating' | 'connected'. We subscribe via `.add()` (and clean up via `.remove()`
+  // so the listener never leaks across reloads).
+  let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const DISCONNECT_RELOAD_DELAY_MS = 30_000;
+  const onConnectionState = (state: string): void => {
+    if (state === "offline") {
+      if (disconnectTimer) return; // already scheduled
+      logger.warn(`[RUNTIME] Client disconnected (offline), scheduling reload in ${DISCONNECT_RELOAD_DELAY_MS / 1000}s...`);
+      disconnectTimer = setTimeout(async () => {
+        disconnectTimer = null;
+        if (runtime.state !== "running") return;
+        logger.warn("[RUNTIME] Disconnect grace period elapsed, triggering runtime reload...");
+        try {
+          await reloadRuntime();
+        } catch (err: unknown) {
+          logger.error("[RUNTIME] Auto-reload on disconnect failed:", err);
+        }
+      }, DISCONNECT_RELOAD_DELAY_MS);
+    } else if (state === "connected") {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+        logger.info("[RUNTIME] Client reconnected before reload, canceling scheduled reload.");
+      }
+    }
+  };
+  client.onConnectionState.add(onConnectionState);
+
+  // Register cleanup so the listener + timer don't fire after destroy/shutdown.
+  context.trackDisposable(() => {
+    client.onConnectionState.remove(onConnectionState);
+    if (disconnectTimer) {
+      clearTimeout(disconnectTimer);
+      disconnectTimer = null;
+    }
+  }, { label: "runtime:disconnect-watchdog-cleanup" });
+
   return runtime;
 }
 
