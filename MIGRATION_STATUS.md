@@ -11,6 +11,7 @@
 
 ## 🔴 高优先级
 - [ ] 1. 核心工具类同步 (`src/utils/`) — channelGapBreaker、logger、generationContext、entityHelpers 等大量增强
+  - 进度：已对比 teleproto 与 mtcute 各 utils 文件，多数差异为合理的 API 改写（已就位）。发现并修复一处真实缺口：`logger.ts` 的 `downgradeLastLogged` 限速 Map 在 mtcute 版无上限、会随运行时间无限增长（内存泄漏），已从 teleproto 移植 `DOWNGRADE_MAX_ENTRIES`/`DOWNGRADE_EVICT_BATCH`/`evictDowngradeLog()` 上限淘汰逻辑。剩余：确认其余文件（apiConfig、loginManager、telegramFormatter、telegraphFormatter、tlRevive 等）是否还有未同步的增强逻辑。
 - [ ] 2. 核心插件同步 (`src/plugin/`) — bf、debug、reload、sendLog、status、sudo、sure、tpm、update、ping、prefix、help、alias、re、exec、loglevel
 - [ ] 3. Leech 模块完整迁移 (新增) — leech.ts 插件 + utils/leech/ (json、leechDB、types、structuredLogger、dateRange、targetResolver、messageSerializer、leechService)
 - [ ] 4. channelGapBreaker 增强同步 — +380 行：指数退避、断路器持久化、teleproto 1.225 兼容、Constructor schema desync 处理
