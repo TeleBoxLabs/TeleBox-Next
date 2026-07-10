@@ -75,10 +75,10 @@ export async function loginForSwitch(): Promise<void> {
 
   try {
     const me = await client.start({
-      phone,
+      phone: async () => phone,
       code: async () => code,
-      password: password ?? undefined,
-      invalidCodeCallback: (type: "code" | "password") => {
+      password: async () => password || "",
+      invalidCodeCallback: (type) => {
         console.error(`[switch:mtcute] Invalid ${type}, will retry with next staged value`);
       },
     });
