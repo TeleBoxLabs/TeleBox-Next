@@ -34,7 +34,9 @@
   - 说明：缓存限制 / cleanup() / 生命周期 / FLOOD_WAIT 类修复（teleproto 82ed0e3 eat/clean_member、b1d1f51 quote、a9de9a1 aban、1fa... paolu、798c0d2 lifecycle 等）主要落在任务 #12/#13（功能修复 / 架构改进）范畴，本任务聚焦最高危的命令注入，已同步完成。
 - [x] 8. 补充缺失插件 (fbi → TeleBox_M_Plugins) — fbi 仅存在于 TeleBox_Plugins，需完整迁移
   - 已完成：随任务 #6 一并完成。fbi 已用 mtcute 原生 API 改写并新增至 TeleBox_M_Plugins/fbi/fbi.ts，`tsc --noEmit` 通过。
-- [ ] 9. telebox_mtcute 核心框架同步 — generationContext、pluginManager、runtimeManager、logger 等核心文件
+- [x] 9. telebox_mtcute 核心框架同步 — generationContext、pluginManager、runtimeManager、logger 等核心文件
+  - 已完成：逐项对比 teleproto 与 mtcute 四个核心文件。`generationContext.ts` 与 `pluginManager.ts` 此前已用 mtcute 原生 API（logger、Dispatcher、Proxy 别名、并行 setup）改写，且比 teleproto 更完善（console.* → logger、teleproto 事件 → mtcute Dispatcher）。`logger.ts` 此前已含 PERSISTENT/HISTORY 降级、速率限制、有界驱逐、通道间隙断路器（比 teleproto 更新），无需改动。
+  - 唯一缺失项：`runtimeManager.ts` 的**连接断开看门狗**（客户端持续离线 30s 后自动整代 runtime 重载，teleproto 版在 buildRuntime 中通过 gramjs `UpdateConnectionState` 事件实现）。mtcute 无该事件类，改用 mtcute 原生 `client.onConnectionState`（`Emitter<ConnectionState>`，状态 offline/connecting/updating/connected）改写：offline 时安排 30s 后 `reloadRuntime()`，connected 时取消；并通过 `context.trackDisposable` 在卸载时 `.remove()` 监听器并清除定时器，防止 reload 泄漏。随 commit 86a9be2 提交本体仓库。`tsc --noEmit` 对 runtimeManager 无新增报错（本体其余 agent.ts 既有报错与本任务无关，已确认在干净工作树下同样存在）。核心框架同步任务完成。
 
 ## 🟡 中优先级
 - [ ] 10. pluginBase/pluginManager/runtimeManager 同步 — 插件基类清理、管理器错误日志降噪、运行时管理器生命周期修复
