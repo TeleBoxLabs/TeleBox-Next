@@ -47,6 +47,9 @@
     - **修复一处真实迁移 bug**：`banUtils.getBannedUsers` 先前机械照搬 teleproto `ChannelParticipantBanned` 的字段形状，访问 `member.peer.userId` / `member.kickedBy` / `member.date`，但 mtcute 的 `ChatMember` 对象根本没有这些字段（实体封在 `member.user` 访问器、封禁者经 `member.restrictedBy`、时间在 `member.raw.date`），导致该判定恒为 false、函数永远返回空数组。已改为 mtcute 原生访问：`member.user` + `member.restrictedBy` + `(member.raw as {date?}).date`，并修正 `username`/`title` 的 `string|null`→`string|undefined` 类型。`tsc --noEmit` 对 banUtils.ts 无报错。
   - 任务 #11 完成。
 - [ ] 12. TeleBox_Plugins 功能修复同步 (18+) — sendat、autodel、quote、zhijiao、lu_bs、aban、speedlink、dig、convert、paolu、qr、eat、clean_member、getstickers、diss、xmsl、oxost、whois、pmcaptcha
+  - 进度：逐项对比 teleproto 版对应插件，针对 mtcute 版的迁移缺陷进行修复。
+    - [x] sendat（已提交 TeleBox_M_Plugins d320ff6）：修复致命 bug——executeTask 误用 `client.sendText(task.cid, "")` 导致定时任务永远发送空消息，改为 `client.sendText(task.cid, html(task.msg))`；补充注册 cron 前的 zombie 守卫（删除上一代同名 cron）；新增 `cleanup()` 钩子清除本插件 cron 任务防 reload 泄漏。对齐 teleproto 版 sendat.ts。
+    - [ ] 待办（剩余 18 个）：autodel、quote、zhijiao、lu_bs、aban、speedlink、dig、convert、paolu、qr、eat、clean_member、getstickers、diss、xmsl、oxost、whois、pmcaptcha —— 下一轮逐一对比并修复。
 - [ ] 13. 插件架构改进同步 — setup() 初始化、cleanup() 生命周期、定时器追踪、generation-safe 模式、空 catch 清理
 - [ ] 14. 全局 axios 代理支持 — teleproto 版新增的配置全局代理支持
 
