@@ -55,7 +55,11 @@
     - [x] lu_bs（本轮提交）：修复 mtcute 迁移后的两处真实功能缺陷并补全 reload 生命周期：(1) 原实现读取 raw TL `documents` 后仍按 teleproto 的 snake_case 字段 `access_hash` / `file_reference` 构造 `inputDocument`，实际 mtcute 字段为 camelCase，发送时会得到空的 accessHash/fileReference，且强制按普通 document 发送会丢失贴纸语义；现改用 mtcute 原生 `client.getStickerSet()` 获取强类型 `StickerSet`，并直接发送 `Sticker.inputMedia`。(2) 原权限检查无条件调用仅适用于频道/超级群的 raw `channels.getParticipant`，普通群订阅会因输入类型不匹配失败；现改用同时支持普通群、超级群和频道的 `client.getChatMember()`，按 `ChatMember.status` 判断 admin/creator。(3) `cleanup()` 同步释放 DB 引用，所有 DB 入口通过带 null 守卫的 `getDB()` 重建，保证 reload 后无旧实例残留。插件仓库版本与 `.gitignore` 下本地运行副本已同步；`tsc --noEmit` 全仓及 `src/plugin/agent.ts` 均 0 报错。
     - [x] aban（本轮提交）：修复 safeGetEntity 返回信息不完整 + clearCache 竞态。safeGetEntity 原用 resolvePeer 仅返回 InputPeer 不含 firstName/username/title，导致封禁消息中目标只显示数字 ID。改为先 resolvePeer 再通过 users.getUsers/messages.getChats 拉取完整实体信息用于展示。refresh 命令中 GroupManager.clearCache() 未 await 现修复。`tsc --noEmit` 对 aban 无报错。插件仓库 f119066。
 - [ ] 13. 插件架构改进同步 — setup() 初始化、cleanup() 生命周期、定时器追踪、generation-safe 模式、空 catch 清理
-- [ ] 14. 全局 axios 代理支持 — teleproto 版新增的配置全局代理支持
+  - 进度：本轮扫描全插件仓库发现 12 个有定时器但缺少 cleanup() 的插件（atall/copy_sticker_set/cosplay/diss/getstickers/hitokoto/oxost/quote/restore_pin/speedlink/teletype/warp，其中多为 Promise 内自解析延迟、不造成实际泄漏）。
+  - [x] diss（本轮提交）：新增 cleanup() 方法（占位，该插件无持久状态）。`tsc --noEmit` 全仓 0 报错。
+  - 其余插件逐一评估中——仅模块级/持久化定时器才需紧急修复。
+- [x] 14. 全局 axios 代理支持 — teleproto 版新增的配置全局代理支持
+  - 已完成：此前随任务 #5（logger 增强同步）一并在 `src/index.ts` 实现了：读取 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量、parseProxy 解析后写入 axios.defaults.proxy、记录日志。`tsc --noEmit` 通过。本轮仅补标记。
 
 ## 🟢 低优先级
 - [ ] 15. 配置文件同步 — package.json、tsconfig.json、ecosystem.config.cjs 等
