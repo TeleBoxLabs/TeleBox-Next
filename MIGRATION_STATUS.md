@@ -20,9 +20,13 @@
   - 已完成：经对比 teleproto 版 channelGapBreaker.ts，mtcute 版此前已含指数退避、1.225 updateManager 布局支持、Constructor schema desync 识别与冷却期内静默重清 pts。本次补齐 teleproto 最近一次增强（commit 428f632：有界驱逐防止 channelFailures Map 无限增长）：补定义此前缺失的 `MAX_TRACKED_CHANNELS`(500) 与 `EVICTION_MIN_AGE_MS`(2h) 常量，新增 `evictStaleRecords()` 并在 `recordChannelGapFailure` 达到上限时主动驱逐空闲记录（保留活跃故障/断路器/已升级的退避冷却）。同时把 logger.ts `extractChannelId` 同步 teleproto 新增的 `fetching difference for <id>` 与通用 `updates (\d{8,})` 提取模式（替换原先仅匹配行尾的 `WRN updates`）。`tsc --noEmit` 通过（exit 0）。
 - [x] 5. logger 增强同步 — PERSISTENT/HISTORY 降级、速率限制、通道间隙处理、全局错误处理器、代理支持
   - 已完成：对比 teleproto 版 logger.ts，mtcute 版此前已包含 PERSISTENT/HISTORY 降级、5 分钟/通道速率限制、downgradeLastLogged 有界驱逐、通道间隙断路器处理（channelId 提取已补齐 `fetching difference for <id>` 与 `updates (\d{8,})` 模式，比 teleproto 更新）。本次补齐 teleproto 在 logger 之外的两项增强：`src/index.ts` (1) 新增全局 axios 代理支持（读取 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量，parseProxy 后写入 axios.defaults.proxy），(2) 全局错误处理器改从 `process.exit(1)` 退出改为只记录 `logger.error` 不退出——避免单个未捕获 rejection 直接崩溃整个进程（对齐 teleproto commit 47d0798）。`tsc --noEmit` 通过（exit 0）。
-- [ ] 6. TeleBox_Plugins 新增插件迁移 (6个) — fbi、music_hub、auto_sign、codex_image、kitt、netease
+- [x] 6. TeleBox_Plugins 新增插件迁移 (6个) — fbi、music_hub、auto_sign、codex_image、kitt、netease
+  - 已完成：6 个插件中 music_hub、codex_image、kitt、netease 此前已是 mtcute 原生版（无 teleproto 引用，tsc 通过）。本次补齐缺失的两个：
+    - `fbi`：teleproto 源在 /root/TeleBox_Plugins/fbi/fbi.ts（仅存在于 teleproto 插件仓库）。用 mtcute 原生 API 完整改写后新增至 TeleBox_M_Plugins/fbi/fbi.ts：`getDialogs`→`client.iterDialogs` 异步迭代、`iterMessages`→`client.getHistory`、`getEntity`→`client.getChat`、`msg.edit/sendMessage`→`msg.edit`/`client.sendText`+`client.editMessage({chatId,message})`、`deleteMessages`→`client.deleteMessagesById`、`Api.Message`→mtcute `MessageContext`/`Chat`/`User`；XSS 转义改用 `@utils/htmlEscape`；复用 `safeGetReplyMessage`、`getGlobalClient`、logger；保留 `setup()` 初始化 DB 与 `cleanup()` 定时器清理（防 reload 泄漏）。`tsc --noEmit` 对 6 个插件全部通过（exit 0）。
+    - `auto_sign`（自动签到）：其 teleproto 对应实现为 `checkin/checkin.ts`（commit a909490「自动签到插件 (#240)」），该 mtcute 版 `checkin/checkin.ts` 此前已存在并迁移完成，命令为 `.qd`。故 6 个新增插件全部就位。
 - [ ] 7. TeleBox_Plugins 安全修复同步 — exec→execFile 防注入、XSS 转义、缓存限制、清理方法、生命周期管理、FLOOD_WAIT 处理
-- [ ] 8. 补充缺失插件 (fbi → TeleBox_M_Plugins) — fbi 仅存在于 TeleBox_Plugins，需完整迁移
+- [x] 8. 补充缺失插件 (fbi → TeleBox_M_Plugins) — fbi 仅存在于 TeleBox_Plugins，需完整迁移
+  - 已完成：随任务 #6 一并完成。fbi 已用 mtcute 原生 API 改写并新增至 TeleBox_M_Plugins/fbi/fbi.ts，`tsc --noEmit` 通过。
 - [ ] 9. telebox_mtcute 核心框架同步 — generationContext、pluginManager、runtimeManager、logger 等核心文件
 
 ## 🟡 中优先级
