@@ -36,18 +36,7 @@ const VERSION_NAMES: Record<TeleBoxVersion, string> = {
   mtcute: "mtcute (native)",
 };
 
-const VERSION_ALIASES: Record<string, TeleBoxVersion> = {
-  tp: "teleproto",
-  teleproto: "teleproto",
-  gramjs: "teleproto",
-  mt: "mtcute",
-  mtcute: "mtcute",
-  native: "mtcute",
-};
 
-function parseVersion(raw: string): TeleBoxVersion | null {
-  return VERSION_ALIASES[raw.toLowerCase().trim()] || null;
-}
 
 function formatStatus(state: ReturnType<typeof loadSwitchState>): string {
   const lines: string[] = ["**📊 版本切换状态**\n"];
@@ -86,7 +75,7 @@ function formatStatus(state: ReturnType<typeof loadSwitchState>): string {
 function formatHelp(): string {
   return [
     "**🔄 版本切换**\n",
-    `\`${mainPrefix}switch login <tp|mt> [phone]\` — 开始登录到目标版本`,
+    `\`${mainPrefix}switch login [phone]\` — 开始登录到另一个版本`,
     `\`${mainPrefix}switch code <验证码>\` — 手动输入验证码`,
     `\`${mainPrefix}switch pwd <2FA密码>\` — 手动输入 2FA 密码`,
     `\`${mainPrefix}switch status\` — 查看当前状态`,
@@ -98,7 +87,7 @@ function formatHelp(): string {
 }
 
 const plugin = new (class extends Plugin {
-  name = "versionSwitch";
+  name = "switch";
   description = "版本切换 (teleproto ↔ mtcute)";
 
   cmdHandlers: Record<string, (msg: MessageContext) => Promise<void>> = {
@@ -176,15 +165,7 @@ const plugin = new (class extends Plugin {
   // ── Command handlers ─────────────────────────────────────────────────
 
   private async handleLogin(msg: MessageContext, args: string[]): Promise<void> {
-    const target = parseVersion(args[0] || "");
-    if (!target) {
-      await msg.edit({ text: `用法: \`${mainPrefix}switch login <tp|mt> [phone]\`` });
-      return;
-    }
-    if (target === "mtcute") {
-      await msg.edit({ text: "❌ 目标版本与当前版本相同 (mtcute)" });
-      return;
-    }
+    const target: TeleBoxVersion = "teleproto";
 
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
     const expectedUserId = String(msg.sender.id);
