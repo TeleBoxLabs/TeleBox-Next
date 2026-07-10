@@ -12,7 +12,8 @@
 ## 🔴 高优先级
 - [x] 1. 核心工具类同步 (`src/utils/`) — channelGapBreaker、logger、generationContext、entityHelpers 等大量增强
   - 已完成：逐项对比 teleproto 与 mtcute 各 utils 文件。channelGapBreaker（含指数退避 + 断路器持久化 + MAX_TRACKED_CHANNELS 淘汰，比 teleproto 更完善）、logger（PERSISTENT/HISTORY 降级 + 速率限制 + 上限淘汰，已就位）、generationContext（logger 集成）、entityHelpers（mtcute resolvePeer/forwardMessagesById 原生 API）、apiConfig（safeJsonParse + logger）、loginManager（mtcute client.start 原生登录流）、telegramFormatter/telegraphFormatter/tlRevive/banUtils/conversation 等全部使用 mtcute 原生 API 改写。`tsc --noEmit` 通过（exit 0）。核心工具类同步任务完成。
-- [ ] 2. 核心插件同步 (`src/plugin/`) — bf、debug、reload、sendLog、status、sudo、sure、tpm、update、ping、prefix、help、alias、re、exec、loglevel
+- [x] 2. 核心插件同步 (`src/plugin/`) — bf、debug、reload、sendLog、status、sudo、sure、tpm、update、ping、prefix、help、alias、re、exec、loglevel
+  - 已完成：逐项核验 16 个核心插件。全部已以 mtcute 原生 API 改写并提交（工作树干净，无 teleproto 引用残留）。`tsc --noEmit` 对 `src/plugin/` 无报错；命令处理器集合与 teleproto 版完全一致（alias/exec/help/loglevel/ping/prefix/re/update/sendLog/status/sudo/sure/bf/debug/reload/tpm 逐一 diff 命令表无差异）。mtcute 版相较 teleproto 更优：统一复用 `@utils/htmlEscape`、`@utils/logger`、`@utils/errorHelpers`，`re.ts` 用 `forwardMessagesById` 原生支持论坛话题 `threadId`，`sendLog.ts` 用 `getGlobalClient()` 替代 `msg.client?.sendFile` 直接发文件。核心插件同步任务完成。
 - [ ] 3. Leech 模块完整迁移 (新增) — leech.ts 插件 + utils/leech/ (json、leechDB、types、structuredLogger、dateRange、targetResolver、messageSerializer、leechService)
 - [ ] 4. channelGapBreaker 增强同步 — +380 行：指数退避、断路器持久化、teleproto 1.225 兼容、Constructor schema desync 处理
 - [ ] 5. logger 增强同步 — PERSISTENT/HISTORY 降级、速率限制、通道间隙处理、全局错误处理器、代理支持
