@@ -39,7 +39,8 @@
   - 唯一缺失项：`runtimeManager.ts` 的**连接断开看门狗**（客户端持续离线 30s 后自动整代 runtime 重载，teleproto 版在 buildRuntime 中通过 gramjs `UpdateConnectionState` 事件实现）。mtcute 无该事件类，改用 mtcute 原生 `client.onConnectionState`（`Emitter<ConnectionState>`，状态 offline/connecting/updating/connected）改写：offline 时安排 30s 后 `reloadRuntime()`，connected 时取消；并通过 `context.trackDisposable` 在卸载时 `.remove()` 监听器并清除定时器，防止 reload 泄漏。随 commit 86a9be2 提交本体仓库。`tsc --noEmit` 对 runtimeManager 无新增报错（本体其余 agent.ts 既有报错与本任务无关，已确认在干净工作树下同样存在）。核心框架同步任务完成。
 
 ## 🟡 中优先级
-- [ ] 10. pluginBase/pluginManager/runtimeManager 同步 — 插件基类清理、管理器错误日志降噪、运行时管理器生命周期修复
+- [x] 10. pluginBase/pluginManager/runtimeManager 同步 — 插件基类清理、管理器错误日志降噪、运行时管理器生命周期修复
+  - 已完成：逐项对比 teleproto 近 30 次提交（含 287bb87 命令行 env 容错、ef2f77c 去 any、565e2a2 无限重连看门狗、a328e24 去冗余 abort、247ad51 setup 隔离、8cfe4c1 错误日志降噪等），mtcute 版三文件已完全对齐：pluginBase 用 logger + safeJsonParse（无 teleproto 引用残留）；pluginManager 对缺失模块降为 logger.debug（降噪）、setup 失败用 Promise.all + try/catch 隔离（后续插件仍初始化）；runtimeManager 用 mtcute 原生 client.onConnectionState 实现断开看门狗、trackDisposable 清理监听器与定时器防泄漏、reloadRuntime 不再冗余 abort（由 unloadPluginsForRuntime 守卫）。唯一未改项：Plugin.cmdHandlers 第二参数 `trigger?: any` 保留——收窄为 MessageContext 会使 .gitignore 下的用户插件 weather.ts（用 `args: string[]`）`tsc` 失败，且 teleproto 上游 ef2f77c 也刻意保留该 any；故维持现状保证跨插件兼容与构建通过。`tsc --noEmit` 对三文件无新增报错。任务 #10 完成。
 - [ ] 11. 其它工具类同步 — loginManager、apiConfig、conversation、banUtils、telegraphFormatter、telegramFormatter 等
 - [ ] 12. TeleBox_Plugins 功能修复同步 (18+) — sendat、autodel、quote、zhijiao、lu_bs、aban、speedlink、dig、convert、paolu、qr、eat、clean_member、getstickers、diss、xmsl、oxost、whois、pmcaptcha
 - [ ] 13. 插件架构改进同步 — setup() 初始化、cleanup() 生命周期、定时器追踪、generation-safe 模式、空 catch 清理
