@@ -66,4 +66,11 @@
   - 已完成：此前随任务 #5（logger 增强同步）一并在 `src/index.ts` 实现了：读取 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量、parseProxy 解析后写入 axios.defaults.proxy、记录日志。`tsc --noEmit` 通过。本轮仅补标记。
 
 ## 🟢 低优先级
-- [ ] 15. 配置文件同步 — package.json、tsconfig.json、ecosystem.config.cjs 等
+- [x] 15. 配置文件同步 — package.json、tsconfig.json、ecosystem.config.cjs 等
+  - 进度与结论（本轮完成）：逐项核对 teleproto 近 100 commits 中触及配置文件的改动，结论为「选择性同步」：
+    - `ecosystem.config.js`：**移除**。该文件是遗留的 preset PM2 配置桩（引用不存在的 `index.js` 与 `service-worker/`），未被任何脚本引用；teleproto 上游已在 `3d4d4a1`「remove preset PM2 ecosystem config」删除。mtcute 版同步移除该死桩，保留功能正常的 `ecosystem.config.cjs`。
+    - `package.json`：**无需同步**——mtcute 版已领先 teleproto 版（正确的 devDependencies 分离、`@modelcontextprotocol/sdk`/`tsx`/`vitest` 归入 devDependencies；无 `teleproto`/`telegraf` 依赖；axios `^1.18.1`、better-sqlite3 `^12.11.1`、dayjs `^1.11.21` 等共享依赖版本更新）。盲目复制 teleproto 的 package.json 反而回退。
+    - `tsconfig.json`：**无需同步**——mtcute 版已含额外的 `@mtcute/html-parser` → `utils/html` 路径别名，比 teleproto 版更完整。
+    - `.nvmrc`/`.npmrc`：两版一致（`v24` / `legacy-peer-deps=true`），无需改动。
+    - `config.json`/`.env-sample`：差异仅为本机会话凭据与 `_switchSessionPath`，属运行态数据（config.json 已被 .gitignore 忽略），非可同步配置。
+  - 本轮实际提交：删除 `ecosystem.config.js`（commit 1d6a667，已 push 到 TeleBox_M）。`tsc --noEmit` 全仓 0 错误、agent.ts 0 错误。任务 #15 完成，15 项迁移全部 done。
