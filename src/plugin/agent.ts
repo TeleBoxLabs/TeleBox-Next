@@ -1,4 +1,4 @@
-import { Plugin } from "@utils/pluginBase";
+import { Plugin, PluginRuntimeContext } from "@utils/pluginBase";
 
 import import_fs4 = require("fs");
 import import_path4 = require("path");
@@ -7,6 +7,105 @@ import import_pluginManager3 = require("@utils/pluginManager");
 import import_globalClient3 = require("@utils/globalClient");
 
 // plugins/agent/provider.ts
+// ─────────────────────────── 真实类型层 ───────────────────────────
+export type ProviderType = "openai" | "gemini" | "anthropic" | "responses" | "deepseek" | "xai" | "custom";
+export type AuthMethod = "bearer" | "api_key_header" | "query_param";
+export type AgentScope = "private" | "group" | "system" | "global" | "telebox";
+export type ChatRole = "system" | "user" | "assistant" | "tool";
+
+export interface AIProvider {
+  name: string;
+  type?: ProviderType;
+  api_interface?: ProviderType;
+  model: string;
+  base_url: string;
+  api_key: string;
+  auth_method?: AuthMethod;
+  [key: string]: unknown;
+}
+export interface ChatImage { mimeType: string; base64: string; }
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolCalls?: ToolCall[];
+  images?: ChatImage[];
+  at?: string;
+  media?: any;
+}
+export interface ToolCall {
+  id: string; name: string; arguments: Record<string, unknown>;
+  function?: { name?: string; arguments?: string | unknown };
+}
+export interface ToolSpec { name: string; description: string; parameters: Record<string, unknown>; }
+export interface Usage { prompt?: number; completion?: number; total?: number; }
+export interface ModelResponse { text: string; toolCalls: ToolCall[]; usage?: Usage; }
+export interface ConversationRecord { id: string; updatedAt: string; messages: ChatMessage[]; }
+export interface WorkspaceEntry { path: string; name: string; type: "file" | "directory"; size?: number; }
+export interface WorkspaceRef { dir: string; path?: string; name?: string; id?: string; }
+export interface CommandResult {
+  stdout: string; stderr: string; exitCode: number;
+  timedOut?: boolean; killed?: boolean; durationMs?: number; truncated?: boolean; code?: number;
+}
+export interface ToolResult { ok: boolean; title: string; content: string; replace?: boolean; }
+export interface AgentOptions {
+  html?: boolean; plainFallback?: string; parseMode?: string; linkPreview?: boolean;
+  scope?: AgentScope;
+  [key: string]: unknown;
+}
+export interface RuntimeToolDef { name: string; description: string; parameters: Record<string, unknown>; }
+export interface AgentRuntime {
+  provider: AIProvider; maxSteps: number; timeoutMs: number;
+  answerOnly?: boolean; planFirst?: boolean; projectRoot?: string; workspace?: string; scope?: AgentScope;
+}
+export interface AgentInput {
+  msg?: any;
+  runtime?: RuntimeContext;
+  provider?: AIProvider;
+  config?: AgentConfig;
+  workspace?: WorkspaceRef;
+  displayName?: string;
+  icon?: string;
+  maxSteps?: number;
+  request?: string;
+  scope?: AgentScope;
+  projectRoot?: string;
+  answerOnly?: boolean;
+  planFirst?: boolean;
+  history?: ChatMessage[];
+  userMessage?: ChatMessage;
+  onStep?: (step: number) => void | Promise<void>;
+  onUsage?: (usage: Usage | undefined) => void | Promise<void>;
+  onPlanChange?: (plan: { explanation?: string; items: { step: string; status: string }[] }) => void | Promise<void>;
+  onToolStart?: (name: string, args: Record<string, unknown>) => void | Promise<void>;
+  onToolFinish?: (name: string, args: Record<string, unknown>, result: ToolResult) => void | Promise<void>;
+  dispatchPlugin?: (command: string, msg: any) => void | Promise<void>;
+  [key: string]: unknown;
+}
+export interface RunAgentResult { answer: string; usage?: Usage; }
+export interface AgentConfig {
+  agent_schema_version?: number; agent_migrated_at?: string; zn_name?: string;
+  providers?: Record<string, AIProvider>; default_provider?: string | null;
+  prompts?: Record<string, string>; skill_raws?: Record<string, string>;
+  zn_conversations?: Record<string, ConversationRecord>; zn_workspaces?: Record<string, unknown>;
+  system_timeout?: number; max_agent_steps?: number; conversation_context_limit?: number;
+  [key: string]: unknown;
+}
+export interface RuntimeContext {
+  msg: any; workspace?: WorkspaceRef; scope?: AgentScope; signal?: AbortSignal;
+  projectRoot?: string; commandTimeoutMs?: number; answerOnly?: boolean;
+  provider: AIProvider; maxSteps: number; timeoutMs: number; planFirst?: boolean;
+  onStep?: (step: number) => void | Promise<void>;
+  onUsage?: (usage: Usage | undefined) => void | Promise<void>;
+  onPlanChange: (plan: { explanation?: string; items: { step: string; status: string }[] }) => void | Promise<void>;
+  onToolStart: (name: string, args: Record<string, unknown>) => void | Promise<void>;
+  onToolFinish: (name: string, args: Record<string, unknown>, result: ToolResult) => void | Promise<void>;
+  onError?: (error: Error) => void | Promise<void>;
+  dispatchPlugin: (command: string, msg: any) => void | Promise<void>;
+  [key: string]: unknown;
+}
+
 import import_axios = require("axios");
 var MAX_OUTPUT_TOKENS = 8192;
 var ANTHROPIC_VERSION = "2023-06-01";
@@ -62,9 +161,9 @@ function providerInterface(provider: any) {
   if (hint.includes("anthropic") || hint.includes("claude")) return "anthropic";
   return "openai";
 }
-function requestAuth(provider: any) {
-  const headers: any = { "Content-Type": "application/json" };
-  const params: any = {};
+function requestAuth(provider: AIProvider) {
+  const headers: Record<string, any> = { "Content-Type": "application/json" };
+  const params: Record<string, any> = {};
   if (provider.type === "gemini") {
     if (provider.auth_method === "api_key_header") headers["x-goog-api-key"] = provider.api_key;
     else params.key = provider.api_key;
@@ -153,7 +252,7 @@ function toOpenAIChatMessages(messages: any) {
         content: message.content
       };
     }
-    const base: any = { role: message.role };
+    const base: Record<string, any> = { role: message.role };
     if (message.images?.length && message.role === "user") {
       base.content = [
         { type: "text", text: message.content },
@@ -340,7 +439,7 @@ function toAnthropicMessages(messages: any) {
   }
   return output;
 }
-async function callAnthropic(provider: any, messages: any, tools: any, timeoutMs: any) {
+async function callAnthropic(provider: AIProvider, messages: ChatMessage[], tools: RuntimeToolDef[], timeoutMs: number) {
   const response = await (import_axios as any).post(
     endpoint(provider, "anthropic"),
     {
@@ -430,7 +529,7 @@ function toGeminiSchema(value: any): any {
   if (Array.isArray(value)) return value.map(toGeminiSchema);
   if (!value || typeof value !== "object") return value;
   const record = value;
-  const output: any = {};
+  const output: Record<string, any> = {};
   for (const [key, item] of Object.entries(record)) {
     if (key === "additionalProperties") continue;
     if (key === "type" && typeof item === "string") {
@@ -441,7 +540,7 @@ function toGeminiSchema(value: any): any {
   }
   return output;
 }
-async function callGemini(provider: any, messages: any, tools: any, timeoutMs: any) {
+async function callGemini(provider: AIProvider, messages: ChatMessage[], tools: RuntimeToolDef[], timeoutMs: number) {
   const auth = requestAuth(provider);
   const response = await (import_axios as any).post(
     endpoint(provider, "gemini"),
@@ -485,7 +584,7 @@ async function callGemini(provider: any, messages: any, tools: any, timeoutMs: a
     usage: usageFromGemini(response.data)
   };
 }
-async function callModel(provider: any, messages: any, tools: any, timeoutMs: any) {
+async function callModel(provider: AIProvider, messages: ChatMessage[], tools: RuntimeToolDef[], timeoutMs: number): Promise<ModelResponse> {
   const invoke = async (currentMessages: any, currentTools: any) => {
     if (provider.type === "gemini") {
       return await callGemini(provider, currentMessages, currentTools, timeoutMs);
@@ -717,42 +816,45 @@ function truncate(text: any, max = MAX_TOOL_OUTPUT) {
   return value.length <= max ? value : `${value.slice(0, max)}
 \u2026\uFF08\u5DE5\u5177\u8F93\u51FA\u5DF2\u622A\u65AD\uFF09`;
 }
-function asString(value: any, fallback = "") {
+function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : value === void 0 ? fallback : String(value);
 }
-function asInt(value: any, fallback: any, min: any, max: any) {
+function asInt(value: unknown, fallback: any, min: any, max: any) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : fallback));
 }
-function within(root: any, target: any) {
+function within(root: string, target: string) {
   const relative = import_path.relative(import_path.resolve(root), import_path.resolve(target));
   return relative === "" || !relative.startsWith("..") && !import_path.isAbsolute(relative);
 }
-function defaultRoot(context: any) {
-  return context.scope === "telebox" ? context.projectRoot : context.workspace.dir;
+function workspaceDir(context: RuntimeContext): string {
+  return context.workspace?.dir ?? context.projectRoot ?? ".";
 }
-function resolveAgentPath(context: any, rawPath: any, fallback = ".") {
+function defaultRoot(context: RuntimeContext) {
+  return context.scope === "telebox" ? context.projectRoot ?? "." : workspaceDir(context);
+}
+function resolveAgentPath(context: RuntimeContext, rawPath: string, fallback = ".") {
   let requested = asString(rawPath, fallback).trim().replace(/^['"]|['"]$/g, "") || fallback;
   let base = defaultRoot(context);
   if (/^(?:\$workspace|workspace:)(?:[\\/]|$)/i.test(requested)) {
     requested = requested.replace(/^(?:\$workspace|workspace:)[\\/]?/i, "");
-    base = context.workspace.dir;
+    base = workspaceDir(context);
   } else if (/^(?:\$project|project:)(?:[\\/]|$)/i.test(requested)) {
     requested = requested.replace(/^(?:\$project|project:)[\\/]?/i, "");
-    base = context.projectRoot;
+    base = context.projectRoot ?? ".";
   }
   const resolved = import_path.resolve(base, requested || ".");
-  if (context.scope === "telebox" && !within(context.projectRoot, resolved) && !within(context.workspace.dir, resolved)) {
+  if (context.scope === "telebox" && !within(context.projectRoot ?? ".", resolved) && !within(workspaceDir(context), resolved)) {
     throw new Error("TeleBox \u667A\u80FD\u4F53\u4E0D\u80FD\u8BBF\u95EE\u9879\u76EE\u76EE\u5F55\u4EE5\u5916\u7684\u8DEF\u5F84\uFF1B\u8BF7\u4F7F\u7528 .sysagent \u6267\u884C\u7CFB\u7EDF\u7EA7\u4EFB\u52A1");
   }
   return resolved;
 }
-function relativeDisplay(context: any, target: any) {
-  if (within(context.projectRoot, target)) {
-    return import_path.relative(context.projectRoot, target) || ".";
+function relativeDisplay(context: RuntimeContext, target: string) {
+  if (within(context.projectRoot ?? ".", target)) {
+    return import_path.relative(context.projectRoot ?? ".", target) || ".";
   }
-  if (within(context.workspace.dir, target)) {
-    return `$workspace/${import_path.relative(context.workspace.dir, target) || "."}`;
+  if (within(workspaceDir(context), target)) {
+    return `$workspace/${import_path.relative(workspaceDir(context), target) || "."}`;
   }
   return target;
 }
@@ -777,7 +879,7 @@ async function collectFiles(context: any, root: any, recursive: any, limit: any)
   await visit(root);
   return output;
 }
-function runProcess(command: any, cwd: any, timeoutMs: any) {
+function runProcess(command: string, cwd: string, timeoutMs: number): Promise<CommandResult> {
   return new Promise((resolve) => {
     const started = Date.now();
     (0, import_child_process.exec)(
@@ -807,8 +909,8 @@ function runProcess(command: any, cwd: any, timeoutMs: any) {
     );
   });
 }
-function runRg(args: any, cwd: any) {
-  return new Promise((resolve, reject) => {
+function runRg(args: string[], cwd: string): Promise<CommandResult> {
+  return new Promise<CommandResult>((resolve, reject) => {
     (0, import_child_process.execFile)(
       "rg",
       args,
@@ -819,7 +921,7 @@ function runRg(args: any, cwd: any) {
           reject(new Error(String(stderr || error.message)));
           return;
         }
-        resolve({ code, stdout: String(stdout || ""), stderr: String(stderr || "") });
+        resolve({ stdout: String(stdout || ""), stderr: String(stderr || ""), exitCode: code });
       }
     );
   });
@@ -844,7 +946,7 @@ function stripPluginPrefix(commandLine: any) {
   const matched = [...(0, import_pluginManager.getPrefixes)()].sort((left, right) => right.length - left.length).find((prefix) => trimmed.startsWith(prefix));
   return matched ? trimmed.slice(matched.length).trim() : trimmed;
 }
-function formatCommandResult(command: any, cwd: any, result: any) {
+function formatCommandResult(command: string, cwd: string, result: CommandResult): string {
   return truncate(
     [
       `command: ${command}`,
@@ -877,7 +979,7 @@ function validatePlan(args: any) {
   }
   return { explanation: asString(args.explanation).trim() || void 0, items };
 }
-async function executeTool(context: any, name: any, args: any) {
+async function executeTool(context: RuntimeContext, name: string, args: Record<string, unknown>): Promise<ToolResult> {
   if (name === "update_plan") {
     const plan = validatePlan(args);
     await context.onPlanChange(plan);
@@ -891,7 +993,7 @@ async function executeTool(context: any, name: any, args: any) {
     };
   }
   if (name === "list_files") {
-    const target = resolveAgentPath(context, args.path, ".");
+    const target = resolveAgentPath(context, String(args.path), ".");
     const stat = await import_fs.promises.stat(target);
     if (!stat.isDirectory()) throw new Error("\u76EE\u6807\u4E0D\u662F\u76EE\u5F55");
     const limit = asInt(args.max_entries, 120, 1, MAX_LIST_ENTRIES);
@@ -903,7 +1005,7 @@ async function executeTool(context: any, name: any, args: any) {
     };
   }
   if (name === "read_file") {
-    const target = resolveAgentPath(context, args.path);
+    const target = resolveAgentPath(context, String(args.path));
     const stat = await import_fs.promises.stat(target);
     if (!stat.isFile()) throw new Error("\u76EE\u6807\u4E0D\u662F\u6587\u4EF6");
     if (stat.size > MAX_TEXT_READ) throw new Error(`\u6587\u4EF6\u8FC7\u5927\uFF1A${stat.size} bytes`);
@@ -930,14 +1032,14 @@ ${body}`
   if (name === "search_files") {
     const query = asString(args.query).trim();
     if (!query) throw new Error("query 不能为空；请提供搜索关键词");
-    const target = resolveAgentPath(context, args.path, ".");
+    const target = resolveAgentPath(context, String(args.path), ".");
     const maxResults = asInt(args.max_results, 120, 1, 300);
     const rgArgs = ["-n", "--no-heading", "--color", "never", "-m", String(maxResults)];
     if (Boolean(args.fixed_string)) rgArgs.push("-F");
     const glob = asString(args.glob).trim();
     if (glob) rgArgs.push("-g", glob);
     rgArgs.push(asString(args.query), target);
-    const result: any = await runRg(rgArgs, context.projectRoot);
+    const result: CommandResult = await runRg(rgArgs, context.projectRoot ?? ".");
     return {
       ok: true,
       title: "\u641C\u7D22\u5B8C\u6210",
@@ -945,7 +1047,7 @@ ${body}`
     };
   }
   if (name === "write_file") {
-    const target = resolveAgentPath(context, args.path);
+    const target = resolveAgentPath(context, String(args.path));
     const content = asString(args.content);
     if (Buffer.byteLength(content, "utf-8") > MAX_WRITE_SIZE) {
       throw new Error("\u5355\u6B21\u5199\u5165\u5185\u5BB9\u8D85\u8FC7 4 MB");
@@ -964,7 +1066,7 @@ ${body}`
     };
   }
   if (name === "replace_text") {
-    const target = resolveAgentPath(context, args.path);
+    const target = resolveAgentPath(context, String(args.path));
     const stat = await import_fs.promises.stat(target);
     if (!stat.isFile()) throw new Error("\u76EE\u6807\u4E0D\u662F\u6587\u4EF6");
     if (stat.size > MAX_TEXT_READ) throw new Error("\u6587\u4EF6\u8FC7\u5927\uFF0C\u65E0\u6CD5\u6587\u672C\u66FF\u6362");
@@ -985,7 +1087,7 @@ ${body}`
     };
   }
   if (name === "delete_file") {
-    const target = resolveAgentPath(context, args.path);
+    const target = resolveAgentPath(context, String(args.path));
     const stat = await import_fs.promises.stat(target);
     if (!stat.isFile()) throw new Error("\u53EA\u80FD\u5220\u9664\u5355\u4E2A\u6587\u4EF6\uFF0C\u4E0D\u80FD\u5220\u9664\u76EE\u5F55");
     await import_fs.promises.unlink(target);
@@ -1000,11 +1102,11 @@ size: ${stat.size} bytes`
     const command = asString(args.command).trim();
     if (!command) throw new Error("command \u4E0D\u80FD\u4E3A\u7A7A");
     assertCommandAllowed(command, context.scope);
-    const cwd = resolveAgentPath(context, args.cwd, defaultRoot(context));
+    const cwd = resolveAgentPath(context, String(args.cwd), defaultRoot(context));
     const stat = await import_fs.promises.stat(cwd);
     if (!stat.isDirectory()) throw new Error("cwd \u4E0D\u662F\u76EE\u5F55");
     const timeoutMs = asInt(args.timeout_ms, context.commandTimeoutMs, 1e3, 864e5);
-    const result: any = await runProcess(command, cwd, timeoutMs);
+    const result: CommandResult = await runProcess(command, cwd, timeoutMs);
     return {
       ok: result.exitCode === 0,
       title: result.exitCode === 0 ? "\u547D\u4EE4\u6267\u884C\u5B8C\u6210" : "\u547D\u4EE4\u6267\u884C\u5931\u8D25",
@@ -1023,7 +1125,7 @@ size: ${stat.size} bytes`
     const key = command.split(/\s+/, 1)[0]?.toLowerCase();
     if (!command || !key) throw new Error("\u63D2\u4EF6\u547D\u4EE4\u4E0D\u80FD\u4E3A\u7A7A");
     if (BLOCKED_PLUGIN_COMMANDS.has(key)) throw new Error(`\u7981\u6B62\u9012\u5F52\u8C03\u7528\u63D2\u4EF6\u547D\u4EE4\uFF1A${key}`);
-    const output = await context.dispatchPlugin(command);
+    const output = (await context.dispatchPlugin(command, context.msg)) as unknown as string;
     return {
       ok: true,
       title: "\u63D2\u4EF6\u5DF2\u6267\u884C",
@@ -1031,7 +1133,7 @@ size: ${stat.size} bytes`
     };
   }
   if (name === "send_file") {
-    const target = resolveAgentPath(context, args.path);
+    const target = resolveAgentPath(context, String(args.path));
     const stat = await import_fs.promises.stat(target);
     if (!stat.isFile()) throw new Error("\u53D1\u9001\u76EE\u6807\u4E0D\u662F\u6587\u4EF6");
     if (stat.size <= 0) throw new Error("\u6587\u4EF6\u4E3A\u7A7A");
@@ -1054,7 +1156,7 @@ size: ${stat.size} bytes`
   }
   throw new Error(`\u672A\u77E5\u5DE5\u5177\uFF1A${name}`);
 }
-function createToolRuntime(context: any) {
+function createToolRuntime(context: RuntimeContext) {
   return {
     definitions: context.answerOnly ? [] : TOOL_DEFINITIONS,
     maxCallsPerTurn: MAX_TOOL_CALLS_PER_TURN,
@@ -1106,7 +1208,7 @@ var DEFAULT_CONFIG = {
   zn_workspaces: {}
 };
 var writeQueue = Promise.resolve();
-function migrateLegacyAgentData(config: any) {
+function migrateLegacyAgentData(config: AgentConfig): boolean {
   const version = Number.parseInt(String(config.agent_schema_version || 0), 10) || 0;
   let changed = false;
   if (version < 2) {
@@ -1137,21 +1239,21 @@ function migrateLegacyAgentData(config: any) {
   }
   // 兼容：旧字段名 ai_providers/active_provider/api_interface -> providers/default_provider/type
   if (config.ai_providers && !config.providers) {
-    config.providers = config.ai_providers;
+    config.providers = config.ai_providers as Record<string, AIProvider>;
     delete config.ai_providers;
     changed = true;
   }
   if (config.active_provider !== void 0 && config.default_provider === void 0) {
-    config.default_provider = config.active_provider;
+    config.default_provider = config.active_provider as string;
     delete config.active_provider;
     changed = true;
   }
   // 兼容：旧版 active_provider 是扁平配置对象（非名称），迁移进 providers
   if (config.default_provider && typeof config.default_provider === "object") {
-    const legacy = config.default_provider;
+    const legacy = config.default_provider as Record<string, any>;
     config.providers = config.providers || {};
     if (!config.providers.__default) {
-      config.providers.__default = { ...legacy, name: "__default", type: legacy.type || legacy.api_interface || detectProviderInterface(legacy) };
+      config.providers.__default = { ...legacy, name: "__default", type: legacy.type || legacy.api_interface || detectProviderInterface(legacy) } as AIProvider;
       changed = true;
     }
     config.default_provider = "__default";
@@ -1168,19 +1270,19 @@ function migrateLegacyAgentData(config: any) {
         delete pr.api_interface;
         changed = true;
       } else if (pr && pr.type === void 0) {
-        pr.type = detectProviderInterface(pr);
+        pr.type = detectProviderInterface(pr) as ProviderType;
         changed = true;
       }
     }
   }
   return changed;
 }
-function normalizeDisplayName(value: any) {
+function normalizeDisplayName(value: unknown) {
   const name = String(value || "").trim().slice(0, 32);
   if (!name || LEGACY_NAME_PATTERNS.some((pattern) => pattern.test(name))) return "";
   return name;
 }
-function clamp(value: any, min: any, max: any) {
+function clamp(value: number, min: any, max: any) {
   return Math.min(max, Math.max(min, value));
 }
 function positiveInt(value: any, fallback: any) {
@@ -1206,8 +1308,8 @@ function compactContent(content: any) {
   return text.length <= 6e3 ? text : `${text.slice(0, 5970)}
 \u2026\uFF08\u8BB0\u5FC6\u5DF2\u622A\u65AD\uFF09`;
 }
-function normalizeConversation(value: any, limit: any) {
-  const raw = value && typeof value === "object" ? value : {};
+function normalizeConversation(value: unknown, limit: any): ConversationRecord {
+  const raw = (value && typeof value === "object" ? value : {}) as Record<string, any>;
   const messages = Array.isArray(raw.messages) ? raw.messages.filter(
     (item: any) => Boolean(item) && typeof item === "object" && (item.role === "user" || item.role === "assistant") && typeof item.content === "string"
   ).map((item: any) => ({
@@ -1228,7 +1330,7 @@ function valueToKey(value: any): any {
   }
   if (Array.isArray(value)) return value.map(valueToKey).filter(Boolean).join("_");
   if (typeof value === "object") {
-    const record = value;
+    const record: any = value;
     for (const key of ["userId", "chatId", "channelId", "peerId", "id", "value"]) {
       const part: any = valueToKey(record[key]);
       if (part) return `${key}:${part}`;
@@ -1287,7 +1389,7 @@ function getCommandTimeout(config: any) {
     24 * 60 * 6e4
   );
 }
-function getMaxSteps(config: any) {
+function getMaxSteps(config: AgentConfig): number {
   return clamp(positiveInt(config.max_agent_steps, DEFAULT_MAX_STEPS), 1, MAX_AGENT_STEPS);
 }
 function getContextLimit(config: any) {
@@ -1297,16 +1399,16 @@ function getContextLimit(config: any) {
     MAX_CONTEXT_LIMIT
   );
 }
-function getProvider(config: any) {
+function getProvider(config: AgentConfig): AIProvider | null {
   const name = config.default_provider;
   if (!name) return null;
   const provider = config.providers?.[name];
   if (!provider?.base_url || !provider?.api_key || !provider?.model) return null;
-  return { name, ...provider };
+  return { ...provider, name };
 }
-function getProviders(config: any) {
+function getProviders(config: AgentConfig): AIProvider[] {
   const map = config.providers || {};
-  return Object.keys(map).map((name) => ({ name, ...map[name] }));
+  return Object.keys(map).map((name) => ({ ...map[name], name }));
 }
 function detectProviderInterface(input: any) {
   const hint = String(input?.base_url || input?.model || "").toLowerCase();
@@ -1360,7 +1462,7 @@ function getWorkspaceInfo(config: any, baseKey: any) {
     dir
   };
 }
-async function getSession(msg: any, scope: any) {
+async function getSession(msg: any, scope: AgentScope): Promise<{ config: AgentConfig; workspace: any; conversation: ConversationRecord }> {
   const config = await readConfig();
   const baseKey = getConversationBaseKey(msg, scope);
   const workspace = getWorkspaceInfo(config, baseKey);
@@ -1447,8 +1549,9 @@ ${item.content}`)
 }
 
 // plugins/agent/agent.ts
-function buildSystemPrompt(input: any) {
-  const { runtime, displayName, config } = input;
+function buildSystemPrompt(input: AgentInput): string {
+  const runtime = input.runtime!;
+  const { displayName, config } = input;
   const scopeText = runtime.scope === "system" ? "\u7CFB\u7EDF\u7EA7" : "TeleBox \u9879\u76EE\u7EA7";
   const pathRules = runtime.scope === "system" ? [
     "\u7CFB\u7EDF\u7EA7\u6A21\u5F0F\u5141\u8BB8\u5728\u64CD\u4F5C\u7CFB\u7EDF\u6388\u4E88\u7684\u6743\u9650\u5185\u4F7F\u7528\u7EDD\u5BF9\u8DEF\u5F84\u548C\u6267\u884C\u7CFB\u7EDF\u547D\u4EE4\u3002",
@@ -1481,7 +1584,7 @@ function buildSystemPrompt(input: any) {
     [
       "[环境]",
       `项目根目录：${runtime.projectRoot}`,
-      `当前工作区：${runtime.workspace.dir}`,
+      `当前工作区：${workspaceDir(runtime)}`,
       "工具路径可使用 `$project/...` 与 `$workspace/...` 指代根目录与工作区。",
       ...pathRules
     ].join("\n"),
@@ -1573,7 +1676,7 @@ function legacyToolCall(text: any) {
   if (parsed.action === "answer" && typeof parsed.content === "string") {
     return { answer: parsed.content };
   }
-  const actionMap: any = {
+  const actionMap: Record<string, any> = {
     run_system: "run_command",
     execute_command: "run_command",
     exec: "run_command",
@@ -1586,7 +1689,7 @@ function legacyToolCall(text: any) {
   };
   const tool = typeof parsed.action === "string" ? actionMap[parsed.action] : "";
   if (!tool) return null;
-  const args: any = {};
+  const args: Record<string, unknown> = {};
   if (typeof parsed.command === "string") args.command = parsed.command;
   if (typeof parsed.path === "string") args.path = parsed.path;
   if (typeof parsed.content === "string") args.content = parsed.content;
@@ -1596,7 +1699,7 @@ function legacyToolCall(text: any) {
   if (typeof parsed.new_text === "string") args.new_text = parsed.new_text;
   return { call: { id: `legacy_${Date.now()}`, name: tool, arguments: args } };
 }
-function toolResultMessage(call: any, ok: any, content: any) {
+function toolResultMessage(call: ToolCall, ok: boolean, content: string): ChatMessage {
   return {
     role: "tool",
     toolCallId: call.id,
@@ -1607,19 +1710,19 @@ function toolResultMessage(call: any, ok: any, content: any) {
 function fingerprint(call: any) {
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
-async function runAgent(input: any) {
-  const { runtime } = input;
+async function runAgent(input: AgentInput): Promise<RunAgentResult> {
+  const runtime = input.runtime!;
   const tools = createToolRuntime(runtime);
-  const messages = [
+  const messages: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(input) },
-    ...input.history,
-    input.userMessage
+    ...(input.history || []),
+    input.userMessage!
   ];
   let usage;
   const callCounts = /* @__PURE__ */ new Map();
   let lastObservation = "";
   for (let step = 1; step <= runtime.maxSteps; step += 1) {
-    await input.onStep(step);
+    await input.onStep?.(step);
     const turn = await callModel(
       runtime.provider,
       messages,
@@ -1627,7 +1730,7 @@ async function runAgent(input: any) {
       runtime.timeoutMs
     );
     usage = addUsage(usage, turn.usage);
-    await input.onUsage(usage);
+    await input.onUsage?.(usage);
     let calls = runtime.answerOnly ? [] : turn.toolCalls;
     if (!calls.length && !runtime.answerOnly) {
       const fallback = legacyToolCall(turn.text);
@@ -1663,12 +1766,12 @@ async function runAgent(input: any) {
         lastObservation = content;
         continue;
       }
-      const result: any = await tools.execute(call.name, call.arguments);
+      const result: ToolResult = await tools.execute(call.name, call.arguments);
       lastObservation = result.content;
       messages.push(toolResultMessage(call, result.ok, result.content));
     }
   }
-  await input.onStep(runtime.maxSteps);
+  await input.onStep?.(runtime.maxSteps);
   messages.push({
     role: "user",
     content: [
@@ -1680,7 +1783,7 @@ ${lastObservation}` : "\u672C\u8F6E\u6CA1\u6709\u53EF\u7528\u89C2\u5BDF\u3002"
   });
   const finalTurn = await callModel(runtime.provider, messages, [], runtime.timeoutMs);
   usage = addUsage(usage, finalTurn.usage);
-  await input.onUsage(usage);
+  await input.onUsage?.(usage);
   return {
     answer: finalTurn.text.trim() || `\u5DF2\u8FBE\u5230\u6700\u5927\u5DE5\u4F5C\u8F6E\u6570\uFF08${runtime.maxSteps}\uFF09\uFF0C\u65E0\u6CD5\u5728\u672C\u8F6E\u786E\u8BA4\u4EFB\u52A1\u5B8C\u6574\u5B8C\u6210\u3002\u6700\u8FD1\u89C2\u5BDF\uFF1A${lastObservation || "\u65E0"}`,
     usage
@@ -1734,9 +1837,9 @@ function payloadText(payload: any) {
   if (record.file || record.files || record.media) return "\uFF08\u53D1\u9001\u4E86\u6587\u4EF6\u6216\u5A92\u4F53\uFF09";
   return "";
 }
-function redactText(text: any, provider: any) {
+function redactText(text: string, provider: AIProvider): string {
   let result = String(text || "");
-  const secrets = [provider?.api_key, ...Object.entries(process.env).filter(([key, value]) => value && /(key|token|secret|password|cookie|authorization)/i.test(key)).map(([, value]) => value)].filter((value) => Boolean(value && value.length >= 8)).sort((left, right) => right.length - left.length);
+  const secrets = [provider?.api_key, ...Object.entries(process.env).filter(([key, value]) => typeof value === "string" && /(key|token|secret|password|cookie|authorization)/i.test(key)).map(([, value]) => value as string)].filter((value): value is string => Boolean(value && value.length >= 8)).sort((left, right) => right.length - left.length);
   for (const secret of secrets) {
     const visible = secret.length > 12 ? `${secret.slice(0, 4)}\u2026${secret.slice(-4)}` : "***";
     result = result.split(secret).join(visible);
@@ -1746,7 +1849,7 @@ function redactText(text: any, provider: any) {
     (_match, prefix, value) => `${prefix}${String(value).slice(0, 4)}\u2026${String(value).slice(-4)}`
   );
 }
-async function safeEdit(msg: any, text: any, options: any = {}) {
+async function safeEdit(msg: any, text: string, options: AgentOptions = {}): Promise<any> {
   const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     await msg.edit({
@@ -1779,7 +1882,7 @@ async function safeEdit(msg: any, text: any, options: any = {}) {
     }
   }
 }
-async function safeReply(msg: any, text: any, options: any = {}) {
+async function safeReply(msg: any, text: string, options: AgentOptions = {}): Promise<any> {
   const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     const sent = await msg.replyText(options.html ? text : truncate2(text), { parseMode: options.html ? "html" : void 0, linkPreview: false });
@@ -1912,7 +2015,7 @@ var AgentStatus = class {
   request: any;
   usage: any;
   plan: any;
-  constructor(input: any) {
+  constructor(input: AgentInput) {
     this.startedAt = Date.now();
     this.step = 1;
     this.state = "\u6B63\u5728\u63A5\u6536\u4EFB\u52A1\uFF0C\u51C6\u5907\u52A8\u624B\u2026";
@@ -2204,7 +2307,7 @@ async function dispatchPluginCaptured(msg: any, commandLine: any) {
   if (looksPending(outputs.join("\n"))) await wait(5e3);
   return outputs.filter((value, index) => index === 0 || value !== outputs[index - 1]).join("\n\n").trim();
 }
-async function showHtmlMessage(msg: any, html: any, plainFallback: any = void 0) {
+async function showHtmlMessage(msg: any, html: string, plainFallback: string = "") {
   const plain = stripTelegramHtml(String(plainFallback != null ? plainFallback : html));
   if (plain.length > SAFE_MESSAGE_LIMIT) {
     const chunks = splitLongText(plain);
@@ -2390,7 +2493,7 @@ async function collectWorkspaceEntries(root: any, current: any, output: any[] = 
   }
   return output;
 }
-function directExec(command: any, cwd: any, timeoutMs: any) {
+function directExec(command: string, cwd: string, timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string; durationMs: number }> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     (0, import_child_process2.exec)(
@@ -2422,7 +2525,7 @@ var AgentPlugin = class extends Plugin {
       sysplan: async (msg: any) => await this.handle(msg, "system", true)
     };
   }
-  setup(context: any) {
+  setup(context: PluginRuntimeContext) {
     this.abortSignal = context.signal;
   }
   cleanup() {
@@ -2526,13 +2629,13 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       provider,
       workspace: session.workspace,
       maxSteps: getMaxSteps(session.config),
-      icon: session.config.icon,
+      icon: (session.config as any).icon,
       request: storedPrompt
     });
     await status.render(true);
-    const runtime = {
+    const runtime: RuntimeContext = {
       msg,
-      scope: options.scope,
+      scope: options.scope as AgentScope,
       projectRoot: process.cwd(),
       workspace: session.workspace,
       provider,
@@ -2541,13 +2644,13 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       maxSteps: getMaxSteps(session.config),
       answerOnly: Boolean(options.answerOnly),
       planFirst: Boolean(options.planFirst),
-      dispatchPlugin: async (command: any) => await dispatchPluginCaptured(msg, command),
+      dispatchPlugin: (command: string, _msg: any) => dispatchPluginCaptured(msg, command) as any,
       onPlanChange: async (plan: any) => await status.setPlan(plan),
       onToolStart: async (name: any, args: any) => await status.toolStart(name, args),
       onToolFinish: async (name: any, args: any, result: any) => await status.toolFinish(name, args, result)
     };
     try {
-      const result: any = await runAgent({
+      const result = await runAgent({
         runtime,
         config: session.config,
         history: conversationToMessages(session.conversation),
@@ -2985,7 +3088,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         tgBlockquote(compact(command, 240), true)
       ].join("\n")
     );
-    const result: any = await directExec(command, session.workspace.dir, timeout);
+    const result = await directExec(command, session.workspace.dir, timeout);
     await showPreformattedMessage(
       msg,
       `\u7CFB\u7EDF\u547D\u4EE4\u7ED3\u679C \xB7 \u9000\u51FA\u7801 ${result.code}`,
@@ -2999,7 +3102,7 @@ ${result.stdout.trim() || "\uFF08\u7A7A\uFF09"}`,
           `stderr:
 ${result.stderr.trim() || "\uFF08\u7A7A\uFF09"}`
         ].join("\n"),
-        getProvider(session.config) || void 0
+        getProvider(session.config)!
       )
     );
   }
