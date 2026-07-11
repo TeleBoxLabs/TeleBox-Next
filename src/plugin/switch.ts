@@ -278,6 +278,9 @@ const plugin = new (class extends Plugin {
     }
 
     await msg.edit({ text: T.goSwitching(target) });
+    // 在 spawn controller 之前发完成提示——controller 会杀掉当前进程，
+    // 消息必须在这之前发出，否则永远发不出去
+    await msg.answerText(T.goDone(target)).catch(() => {});
 
     const child = spawn(
       "npx", ["tsx", "/root/telebox/src/utils/versionSwitchController.ts"],
@@ -285,10 +288,6 @@ const plugin = new (class extends Plugin {
         env: { ...process.env, SWITCH_SKIP_LOGIN: "1", SWITCH_SOURCE: "mtcute", SWITCH_TARGET: target } },
     );
     child.unref();
-
-    setTimeout(() => {
-      msg.answerText(T.goDone(target)).catch(() => {});
-    }, 8_000);
   }
 
   private async handleRevert(msg: MessageContext): Promise<void> {
@@ -300,17 +299,14 @@ const plugin = new (class extends Plugin {
     }
 
     await msg.edit({ text: T.revertStarted() });
+    await msg.answerText(T.revertDone()).catch(() => {});
 
     const child = spawn(
       "npx", ["tsx", "/root/telebox_mtcute/src/utils/versionSwitchController.ts"],
       { cwd: "/root/telebox_mtcute", detached: true, stdio: "ignore",
-        env: { ...process.env, SWITCH_REVERT: "1", SWITCH_REVERT_TARGET: state.activeVersion, SWITCH_REVERT_SOURCE: "mtcute" } },
+        env: { ...process.env, SWITCH_SKIP_LOGIN: "1", SWITCH_SOURCE: "mtcute", SWITCH_TARGET: "teleproto" } },
     );
     child.unref();
-
-    setTimeout(() => {
-      msg.answerText(T.revertDone()).catch(() => {});
-    }, 8_000);
   }
 })();
 
