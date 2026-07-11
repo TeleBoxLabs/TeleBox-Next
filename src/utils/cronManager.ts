@@ -1,6 +1,5 @@
 import { CronJob, validateCronExpression } from "cron";
 import type { GenerationContext } from "./generationContext";
-import { logger } from "@utils/logger";
 
 type CronHandler = () => void | Promise<void>;
 
@@ -28,7 +27,7 @@ class CronManager {
 
     const validate = validateCronExpression(cron)
     if (!validate.valid) {
-      logger.info(`CronManager set new cronJob ${name} error while invalid cron`, validate.error);
+      console.log(`CronManager set new cronJob ${name} error while invalid cron`, validate.error);
       return () => undefined;
     }
 
@@ -50,9 +49,11 @@ class CronManager {
         taskState.executionsFinished += 1;
       });
       if (context) {
-        context.trackTask(task, { label: `cron:${name}:execution`, kind: "cron-execution" });
+        context.trackTask(task, { label: `cron:${name}:execution` });
+        task.catch(console.error);
+      } else {
+        task.catch(console.error);
       }
-      task.catch((e) => { logger.error(`[cron:${name}] task error:`, e); });
     });
 
     taskState.job = job;
@@ -63,7 +64,6 @@ class CronManager {
     };
     const dispose = context?.trackDisposable(stopCronTask, {
       label: `cron:${name}:job`,
-      kind: "cron-job",
     }) ?? stopCronTask;
     return dispose;
   }

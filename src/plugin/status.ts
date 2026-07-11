@@ -1,8 +1,7 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
-import { html } from "@mtcute/html-parser";
-import type { MessageContext } from "@mtcute/dispatcher";
+import { Api } from "teleproto";
 import * as os from "os";
 import * as fs from "fs";
 import { execSync, ExecSyncOptions } from "child_process";
@@ -11,27 +10,111 @@ import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
-import type { ResourceStats } from "@utils/generationContext";
-import { logger } from "@utils/logger";
-import { getErrorMessage } from "@utils/errorHelpers";
-import { sleep } from "@utils/asyncHelpers";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 
 // ==================== 常量 ====================
-const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b><br><b>🏠 主机信息</b><br>• <b>主机名:</b> <code>{hostname}</code><br>• <b>平台:</b> <code>{platform} {arch}</code><br>• <b>内核:</b> <code>{kernel}</code><br>• <b>语言环境:</b> <code>{locale}</code><br><br><b>📦 版本信息</b><br>• <b>Node.js版本:</b> <code>{nodejs}</code><br>• <b>mtcute版本:</b> <code>{mtcute}</code><br>• <b>TeleBox版本:</b> <code>{telebox}</code><br><br><b>📈 资源使用</b><br>• <b>CPU:</b> <code>{cpu}%</code> (系统) / <code>{processcpu}%</code> (进程)<br>• <b>内存:</b> <code>{mem}%</code> (系统) / <code>{processmem}%</code> (进程)<br>• <b>SWAP:</b> <code>{swap}</code><br>• <b>磁盘:</b> <code>{disk}</code><br>• <b>网络接口:</b> <code>{network}</code><br><br><b>⚙️ 系统详情</b><br>• <b>OS:</b> <code>{os}</code><br>• <b>负载平均:</b> <code>{loadaverage}</code><br>• <b>包数量:</b> <code>{packages}</code><br>• <b>Init:</b> <code>{init}</code><br>• <b>进程数:</b> <code>{process}</code><br><br><b>⏱️ 运行状态</b><br>• <b>运行时间:</b> <code>{uptime}</code><br>• <b>扫描耗时:</b> <code>{scantime}ms</code>`;
+const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
+<b>🏠 主机信息</b>
+• <b>主机名:</b> <code>{hostname}</code>
+• <b>平台:</b> <code>{platform} {arch}</code>
+• <b>内核:</b> <code>{kernel}</code>
+• <b>语言环境:</b> <code>{locale}</code>
+
+<b>📦 版本信息</b>
+• <b>Node.js版本:</b> <code>{nodejs}</code>
+• <b>Teleproto版本:</b> <code>{teleproto}</code>
+• <b>TeleBox版本:</b> <code>{telebox}</code>
+
+<b>📈 资源使用</b>
+• <b>CPU:</b> <code>{cpu}%</code> (系统) / <code>{processcpu}%</code> (进程)
+• <b>内存:</b> <code>{mem}%</code> (系统) / <code>{processmem}%</code> (进程)
+• <b>SWAP:</b> <code>{swap}</code>
+• <b>磁盘:</b> <code>{disk}</code>
+• <b>网络接口:</b> <code>{network}</code>
+
+<b>⚙️ 系统详情</b>
+• <b>OS:</b> <code>{os}</code>
+• <b>负载平均:</b> <code>{loadaverage}</code>
+• <b>包数量:</b> <code>{packages}</code>
+• <b>Init:</b> <code>{init}</code>
+• <b>进程数:</b> <code>{process}</code>
+
+<b>⏱️ 运行状态</b>
+• <b>运行时间:</b> <code>{uptime}</code>
+• <b>扫描耗时:</b> <code>{scantime}ms</code>`;
 
 // 帮助文本
-const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b><br><br><b>🔧 使用方法:</b><br>• <code>${mainPrefix}sysinfo</code> - 显示当前系统状态<br>• <code>${mainPrefix}status</code> - 显示当前状态<br>• <code>${mainPrefix}status lifecycle</code> - 显示当前 generation 生命周期资源计数<br>• <code>${mainPrefix}status stress</code> - 输出 reload 压测观察项与当前计数<br>• <code>${mainPrefix}status show</code> - 显示当前模板内容<br>• <code>${mainPrefix}status set</code> - 回复模板消息，设置自定义格式<br>• <code>${mainPrefix}status reset</code> - 重置默认模板<br><br><b>💡 模板标签说明:</b><br>可用标签：<br><blockquote expandable><b>🏠 主机信息</b><br>• <code>{hostname}</code> - <b>主机名</b><br>• <code>{platform}</code> - <b>系统平台</b> (linux/win32/darwin)<br>• <code>{arch}</code> - <b>系统架构</b> (x64/arm64等)<br>• <code>{kernel}</code> - <b>内核版本</b><br>• <code>{locale}</code> - <b>语言环境</b><br><br><b>📦 版本信息</b><br>• <code>{nodejs}</code> - <b>Node.js版本</b><br>• <code>{mtcute}</code> - <b>mtcute库版本</b><br>• <code>{telebox}</code> - <b>TeleBox版本</b><br><br><b>📈 资源使用</b><br>• <code>{cpu}</code> - <b>系统CPU使用率</b> (%)<br>• <code>{processcpu}</code> - <b>进程CPU使用率</b> (%)<br>• <code>{mem}</code> - <b>系统内存使用率</b> (%)<br>• <code>{processmem}</code> - <b>进程内存使用率</b> (%)<br>• <code>{swap}</code> - <b>SWAP使用情况</b><br>• <code>{disk}</code> - <b>磁盘使用情况</b><br>• <code>{network}</code> - <b>主网络接口名称</b><br>• <b>进度条标签:</b><br>  <code>{cpubar}</code> - 系统CPU进度条<br>  <code>{processcpubar}</code> - 进程CPU进度条<br>  <code>{membar}</code> - 系统内存进度条<br>  <code>{processmembar}</code> - 进程内存进度条<br>  <code>{diskbar}</code> - 磁盘进度条<br><br><b>⚙️ 系统详情</b><br>• <code>{os}</code> - <b>操作系统信息</b><br>• <code>{loadaverage}</code> - <b>负载平均值</b><br>• <code>{packages}</code> - <b>已安装包数量</b><br>• <code>{init}</code> - <b>初始化系统</b> (systemd/pm2等)<br>• <code>{process}</code> - <b>进程数量</b><br><br><b>⏱️ 运行状态</b><br>• <code>{uptime}</code> - <b>运行时间</b> (Xd Yh Zm)<br>• <code>{scantime}</code> - <b>扫描耗时</b> (毫秒)</blockquote><br><br><b>📝 模板设置示例:</b><br>发送一条消息，内容为自定义模板：<br><code>&lt;b&gt;📊 系统状态&lt;/b&gt;<br>CPU: {cpu}% {cpubar}<br>内存: {mem}% {membar}<br>磁盘: {disk} {diskbar}<br>运行时间: {uptime}</code><br>回复该消息，发送 <code>${mainPrefix}status set</code><br><b>⚠️ 注意事项:</b><br>• 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code>）<br>• 标签名称必须完全匹配`;
+const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
+
+<b>🔧 使用方法:</b>
+• <code>${mainPrefix}sysinfo</code> - 显示当前系统状态
+• <code>${mainPrefix}status</code> - 显示当前状态
+• <code>${mainPrefix}status lifecycle</code> - 显示当前 generation 生命周期资源计数
+• <code>${mainPrefix}status stress</code> - 输出 reload 压测观察项与当前计数
+• <code>${mainPrefix}status show</code> - 显示当前模板内容
+• <code>${mainPrefix}status set</code> - 回复模板消息，设置自定义格式
+• <code>${mainPrefix}status reset</code> - 重置默认模板
+
+<b>💡 模板标签说明:</b>
+可用标签：
+<blockquote expandable><b>🏠 主机信息</b>
+• <code>{hostname}</code> - <b>主机名</b>
+• <code>{platform}</code> - <b>系统平台</b> (linux/win32/darwin)
+• <code>{arch}</code> - <b>系统架构</b> (x64/arm64等)
+• <code>{kernel}</code> - <b>内核版本</b>
+• <code>{locale}</code> - <b>语言环境</b>
+
+<b>📦 版本信息</b>
+• <code>{nodejs}</code> - <b>Node.js版本</b>
+• <code>{teleproto}</code> - <b>Teleproto库版本</b>
+• <code>{telebox}</code> - <b>TeleBox版本</b>
+
+<b>📈 资源使用</b>
+• <code>{cpu}</code> - <b>系统CPU使用率</b> (%)
+• <code>{processcpu}</code> - <b>进程CPU使用率</b> (%)
+• <code>{mem}</code> - <b>系统内存使用率</b> (%)
+• <code>{processmem}</code> - <b>进程内存使用率</b> (%)
+• <code>{swap}</code> - <b>SWAP使用情况</b>
+• <code>{disk}</code> - <b>磁盘使用情况</b>
+• <code>{network}</code> - <b>主网络接口名称</b>
+• <b>进度条标签:</b>
+  <code>{cpubar}</code> - 系统CPU进度条
+  <code>{processcpubar}</code> - 进程CPU进度条
+  <code>{membar}</code> - 系统内存进度条
+  <code>{processmembar}</code> - 进程内存进度条
+  <code>{diskbar}</code> - 磁盘进度条
+
+<b>⚙️ 系统详情</b>
+• <code>{os}</code> - <b>操作系统信息</b>
+• <code>{loadaverage}</code> - <b>负载平均值</b>
+• <code>{packages}</code> - <b>已安装包数量</b>
+• <code>{init}</code> - <b>初始化系统</b> (systemd/pm2等)
+• <code>{process}</code> - <b>进程数量</b>
+
+<b>⏱️ 运行状态</b>
+• <code>{uptime}</code> - <b>运行时间</b> (Xd Yh Zm)
+• <code>{scantime}</code> - <b>扫描耗时</b> (毫秒)</blockquote>
+
+<b>📝 模板设置示例:</b>
+发送一条消息，内容为自定义模板：
+<code>&lt;b&gt;📊 系统状态&lt;/b&gt;
+CPU: {cpu}% {cpubar}
+内存: {mem}% {membar}
+磁盘: {disk} {diskbar}
+运行时间: {uptime}</code>
+回复该消息，发送 <code>${mainPrefix}status set</code>
+<b>⚠️ 注意事项:</b>
+• 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code>）
+• 标签名称必须完全匹配`;
 
 // 系统命令执行超时 (ms)
 const EXEC_TIMEOUT = 5000;
 
 // ==================== 类型 ====================
 interface StatusData {
-  [key: string]: string;
   // 旧字段（向后兼容）
   hostname: string;
   platform: string;
@@ -49,7 +132,7 @@ interface StatusData {
   kernelInfo: string;
   locale: string;
   nodejsVersion: string;
-  mtcuteVersion: string;
+  teleprotoVersion: string;
   teleboxVersion: string;
   osInfo: string;
   packages: string;
@@ -65,7 +148,7 @@ interface StatusData {
   // 新字段（匹配简化标签）
   kernel: string;             // 内核版本
   nodejs: string;             // Node.js版本
-  mtcute: string;              // mtcute库版本
+  teleproto: string;           // Teleproto库版本
   telebox: string;            // TeleBox版本
   os: string;                 // 操作系统信息
   loadaverage: string;        // 负载平均
@@ -101,7 +184,7 @@ interface SystemDetails {
 
 interface VersionInfo {
   nodejs: string;
-  mtcute: string;
+  teleproto: string;
   telebox: string;
 }
 
@@ -111,8 +194,8 @@ class TeleBoxSystemMonitor extends Plugin {
     this.db = null;
   }
 
-  description = `显示系统信息与TeleBox运行状态<br><br>${HELP_TEXT}`;
-  private db: Awaited<ReturnType<typeof JSONFilePreset<{ template: string }>>> | null = null;
+  description = `显示系统信息与TeleBox运行状态\n\n${HELP_TEXT}`;
+  private db: any;
   private readonly PLUGIN_NAME = "status";
   private readonly DB_PATH: string;
 
@@ -131,8 +214,8 @@ class TeleBoxSystemMonitor extends Plugin {
       this.db = await JSONFilePreset(this.DB_PATH, {
         template: DEFAULT_TEMPLATE,
       });
-    } catch (error: unknown) {
-      logger.error(`[${this.PLUGIN_NAME}] 数据库初始化失败:`, error);
+    } catch (error) {
+      console.error(`[${this.PLUGIN_NAME}] 数据库初始化失败:`, error);
       throw new Error(`数据库初始化失败: ${error instanceof Error ? error.message : '未知错误'}`);
     }
   }
@@ -144,7 +227,7 @@ class TeleBoxSystemMonitor extends Plugin {
   };
 
   // 处理 status 命令
-  private async handleStatus(msg: MessageContext): Promise<void> {
+  private async handleStatus(msg: Api.Message): Promise<void> {
     try {
       const parts = msg.text?.trim().split(/\s+/) || [];
       const subCommand = parts[1]?.toLowerCase();
@@ -168,31 +251,34 @@ class TeleBoxSystemMonitor extends Plugin {
         default:
           await this.showStatus(msg);
       }
-    } catch (error: unknown) {
+    } catch (error) {
       await this.handleError(msg, error, "status");
     }
   }
 
   // 处理 sysinfo 命令
-  private async handleSysInfo(msg: MessageContext): Promise<void> {
+  private async handleSysInfo(msg: Api.Message): Promise<void> {
     try {
       await msg.edit({
         text: "🔄 正在获取系统信息...",
+        parseMode: "html",
       });
       const sysInfo = await this.getSystemInfo();
       await msg.edit({
-        text: html(sysInfo),
+        text: sysInfo,
+        parseMode: "html",
       });
-    } catch (error: unknown) {
+    } catch (error) {
       await this.handleError(msg, error, "sysinfo");
     }
   }
 
   // ==================== 状态显示 ====================
   // 显示系统状态
-  private async showStatus(msg: MessageContext): Promise<void> {
+  private async showStatus(msg: Api.Message): Promise<void> {
     await msg.edit({
       text: "🔄 正在获取状态信息...",
+      parseMode: "html",
     });
     const startTime = Date.now();
     const template = this.db?.data?.template || DEFAULT_TEMPLATE;
@@ -202,66 +288,49 @@ class TeleBoxSystemMonitor extends Plugin {
     statusData.scanTime = scanTime.toString();
     statusData.scantime = scanTime.toString();
 
-    const rendered = this.renderTemplate(template, statusData);
+    const rendered = this.renderTemplate(template, statusData as unknown as Record<string, string>);
     await msg.edit({
-      text: html(rendered),
+      text: rendered,
+      parseMode: "html",
     });
   }
 
   private formatLifecycleDiagnostics(): string {
     const context = tryGetCurrentGenerationContext();
-    if (!context) return "<b>🧪 Lifecycle diagnostics</b><br><br>当前没有运行中的 generation。";
-    const snapshot = context.snapshot();
-    const stats = (Object.entries(snapshot.stats) as [string, ResourceStats][])
-      .filter(([, stat]) => stat.created > 0 || stat.active > 0 || stat.canceled > 0 || stat.timedOut > 0)
-      .map(([kind, stat]) => {
-        return `• <code>${kind}</code>: active=<code>${stat.active}</code>, created=<code>${stat.created}</code>, drained=<code>${stat.completed}</code>, canceled=<code>${stat.canceled}</code>, timedOut=<code>${stat.timedOut}</code>`;
-      })
-      .join("<br>") || "• <code>none</code>";
-    const residuals = snapshot.residualResources
-      .slice(0, 12)
-      .map((resource) => {
-        return `• <code>${resource.kind}#${resource.id}</code> ${resource.label} ${resource.state} age=<code>${resource.ageMs}ms</code>`;
-      })
-      .join("<br>") || "• <code>none</code>";
-    const more = snapshot.residualResources.length > 12
-      ? `<br>• ...and <code>${snapshot.residualResources.length - 12}</code> more`
-      : "";
-
-    return `<b>🧪 Lifecycle diagnostics</b><br><br>` +
-      `Generation: <code>${snapshot.generation}</code><br>` +
-      `State: <code>${snapshot.state}</code><br>` +
-      `Tracked tasks: <code>${snapshot.trackedTasks}</code><br>` +
-      `Tracked disposables: <code>${snapshot.trackedDisposables}</code><br><br>` +
-      `<b>Resource counters</b><br>${stats}<br><br>` +
-      `<b>Residual resources</b><br>${residuals}${more}`;
+    if (!context) return "<b>🧪 Lifecycle</b>\n\n当前没有运行中的 generation。";
+    return `<b>🧪 Lifecycle</b>\n\n` +
+      `Generation: <code>${context.generation}</code>\n` +
+      `State: <code>${context.state}</code>\n` +
+      `Uptime: <code>${Math.round((Date.now() - context.createdAt) / 1000)}s</code>`;
   }
 
-  private async handleLifecycleStatus(msg: MessageContext): Promise<void> {
+  private async handleLifecycleStatus(msg: Api.Message): Promise<void> {
     await msg.edit({
-      text: html(this.formatLifecycleDiagnostics()),
+      text: this.formatLifecycleDiagnostics(),
+      parseMode: "html",
     });
   }
 
-  private async handleLifecycleStress(msg: MessageContext): Promise<void> {
+  private async handleLifecycleStress(msg: Api.Message): Promise<void> {
     const text = this.formatLifecycleDiagnostics() +
-      `<br><br><b>Repeatable stress scenarios</b><br>` +
-      `• idle repeated reload: compare active counters before/after reload; old generation residual should become none.<br>` +
-      `• active conversation wait + reload: conversation/handler/timeout should cancel, then drain or appear as residual.<br>` +
-      `• PMCaptcha timeout + reload: timeout and promise counters should cancel and not remain active.<br>` +
-      `• Shift backup + FLOOD_WAIT + reload: child-process/promise/timeout counters show bounded retention versus leak.<br>` +
-      `• AI long request + reload: promise/task residuals identify requests still holding old generation.<br>` +
-      `• subprocess running + reload: child-process should be canceled, drained, or listed residual.<br>` +
+      `\n\n<b>Repeatable stress scenarios</b>\n` +
+      `• idle repeated reload: compare active counters before/after reload; old generation residual should become none.\n` +
+      `• active conversation wait + reload: conversation/handler/timeout should cancel, then drain or appear as residual.\n` +
+      `• PMCaptcha timeout + reload: timeout and promise counters should cancel and not remain active.\n` +
+      `• Shift backup + FLOOD_WAIT + reload: child-process/promise/timeout counters show bounded retention versus leak.\n` +
+      `• AI long request + reload: promise/task residuals identify requests still holding old generation.\n` +
+      `• subprocess running + reload: child-process should be canceled, drained, or listed residual.\n` +
       `• cron callback mid-flight + reload: cron-job cancels; cron-execution drains or reports residual.`;
     await msg.edit({
-      text: html(text),
+      text,
+      parseMode: "html",
     });
   }
 
   // 显示当前模板内容
-  private async handleShowTemplate(msg: MessageContext): Promise<void> {
+  private async handleShowTemplate(msg: Api.Message): Promise<void> {
     if (!this.db) await this.initDB();
-    const template = this.db!.data.template || DEFAULT_TEMPLATE;
+    const template = this.db.data.template || DEFAULT_TEMPLATE;
 
     // 转义 HTML 特殊字符，使模板原样显示
     const htmlMap: Record<string, string> = {
@@ -274,7 +343,8 @@ class TeleBoxSystemMonitor extends Plugin {
     const escaped = template.replace(/[&<>"']/g, (m: string) => htmlMap[m] || m);
 
     await msg.edit({
-      text: html(`<b>📄 当前模板内容:</b><br><br><code>${escaped}</code>`),
+      text: `<b>📄 当前模板内容:</b>\n\n<code>${escaped}</code>`,
+      parseMode: "html"
     });
   }
 
@@ -303,18 +373,18 @@ class TeleBoxSystemMonitor extends Plugin {
     const processMemUsage = process.memoryUsage();
     const processMemPercent = Math.round((processMemUsage.rss / totalmem) * 1000) / 10;
 
-    const [cpuUsage, processCpuUsage, systemDetails, versions] = await Promise.all([
-      this.getCpuUsage(),
-      this.getProcessCpuUsage(),
-      this.gatherSysInfoDetails(),
-      this.getVersionInfo(),
-    ]);
+    const cpuUsage = await this.getCpuUsage();
+    const processCpuUsage = await this.getProcessCpuUsage();
+
+    const systemDetails = await this.gatherSysInfoDetails();
 
     const loadavgStr = platform === "win32"
       ? "N/A"
       : loadavg.map((load) => load.toFixed(2)).join(", ");
 
     const locale = process.env.LANG || process.env.LC_ALL || "en_US.UTF-8";
+
+    const versions = await this.getVersionInfo();
 
     const cpuPercentNum = parseFloat(cpuUsage) || 0;
     const processCpuNum = parseFloat(processCpuUsage) || 0;
@@ -350,7 +420,7 @@ class TeleBoxSystemMonitor extends Plugin {
       kernelInfo: systemDetails.kernelInfo,
       locale,
       nodejsVersion: versions.nodejs,
-      mtcuteVersion: versions.mtcute,
+      teleprotoVersion: versions.teleproto,
       teleboxVersion: versions.telebox,
       osInfo: systemDetails.osInfo,
       packages: systemDetails.packages,
@@ -368,7 +438,7 @@ class TeleBoxSystemMonitor extends Plugin {
       ...baseData,
       kernel: baseData.kernelInfo,
       nodejs: baseData.nodejsVersion,
-      mtcute: baseData.mtcuteVersion,
+      teleproto: baseData.teleprotoVersion,
       telebox: baseData.teleboxVersion,
       os: baseData.osInfo,
       loadaverage: baseData.loadavgStr,
@@ -393,31 +463,34 @@ class TeleBoxSystemMonitor extends Plugin {
 
   // ==================== 模板管理 ====================
   // 设置自定义模板
-  private async handleSetTemplate(msg: MessageContext): Promise<void> {
+  private async handleSetTemplate(msg: Api.Message): Promise<void> {
     const replyMsg = await safeGetReplyMessage(msg);
     if (!replyMsg || !replyMsg.text) {
       await msg.edit({
         text: "❌ 请回复一条包含模板内容的消息",
+        parseMode: "html",
       });
       return;
     }
     if (!this.db) await this.initDB();
 
-    this.db!.data.template = replyMsg.text;
-    await this.db!.write();
+    this.db.data.template = replyMsg.text;
+    await this.db.write();
 
     await msg.edit({
-      text: html(`✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果`),
+      text: "✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果",
+      parseMode: "html",
     });
   }
 
   // 重置默认模板
-  private async handleResetTemplate(msg: MessageContext): Promise<void> {
+  private async handleResetTemplate(msg: Api.Message): Promise<void> {
     if (!this.db) await this.initDB();
-    this.db!.data.template = DEFAULT_TEMPLATE;
-    await this.db!.write();
+    this.db.data.template = DEFAULT_TEMPLATE;
+    await this.db.write();
     await msg.edit({
       text: "✅ 模板已重置为默认！",
+      parseMode: "html",
     });
   }
 
@@ -442,17 +515,13 @@ class TeleBoxSystemMonitor extends Plugin {
     const memoryUsage = this.formatByteUsage(usedMem, totalmem);
     const memPercent = Math.round((usedMem / totalmem) * 100);
 
-    const [cpuUsage, processCpuUsage] = await Promise.all([
-      this.getCpuUsage(),
-      this.getProcessCpuUsage(),
-    ]);
+    const cpuUsage = await this.getCpuUsage();
+    const processCpuUsage = await this.getProcessCpuUsage();
     const processMemUsage = process.memoryUsage();
     const processMemPercent = Math.round((processMemUsage.rss / totalmem) * 1000) / 10;
 
-    const [systemDetails, versions] = await Promise.all([
-      this.gatherSysInfoDetails(),
-      this.getVersionInfo(),
-    ]);
+    const systemDetails = await this.gatherSysInfoDetails();
+    const versions = await this.getVersionInfo();
 
     const loadavgStr = platform === "win32"
       ? "N/A"
@@ -498,42 +567,29 @@ Scan Time: ${scanTime}ms
     let processes = "Unknown";
     let swapInfo = "Disabled";
 
-    if (platform === "linux") {
-      const [osInfoResult, kernelInfoResult, packagesResult, initSystemResult, diskInfoResult, processesResult, swapInfoResult] =
-        await Promise.allSettled([
-          this.getLinuxOsInfo(arch),
-          this.getLinuxKernelInfo(),
-          this.getLinuxPackageCount(),
-          this.getInitSystem(),
-          this.getLinuxDiskInfo(),
-          this.getProcessCount(),
-          this.getLinuxSwapInfo(),
-        ]);
-
-      osInfo = osInfoResult.status === "fulfilled" ? osInfoResult.value : osInfo;
-      kernelInfo = kernelInfoResult.status === "fulfilled" ? kernelInfoResult.value : kernelInfo;
-      packages = packagesResult.status === "fulfilled" ? packagesResult.value : packages;
-      initSystem = initSystemResult.status === "fulfilled" ? initSystemResult.value : initSystem;
-      diskInfo = diskInfoResult.status === "fulfilled" ? diskInfoResult.value : diskInfo;
-      processes = processesResult.status === "fulfilled" ? processesResult.value : processes;
-      swapInfo = swapInfoResult.status === "fulfilled" ? swapInfoResult.value : swapInfo;
-    } else if (platform === "win32") {
-      osInfo = `Windows ${arch}`;
-      kernelInfo = `Windows NT ${release}`;
-    } else if (platform === "darwin") {
-      osInfo = `macOS ${arch}`;
-      kernelInfo = `Darwin ${release}`;
-      packages = "Homebrew";
-      initSystem = "launchd";
-      const [processesResult, diskInfoResult, swapInfoResult] =
-        await Promise.allSettled([
-          this.getProcessCount(),
-          this.getMacDiskInfo(),
-          this.getMacSwapInfo(),
-        ]);
-      processes = processesResult.status === "fulfilled" ? processesResult.value : processes;
-      diskInfo = diskInfoResult.status === "fulfilled" ? diskInfoResult.value : diskInfo;
-      swapInfo = swapInfoResult.status === "fulfilled" ? swapInfoResult.value : swapInfo;
+    try {
+      if (platform === "linux") {
+        osInfo = await this.getLinuxOsInfo(arch);
+        kernelInfo = await this.getLinuxKernelInfo();
+        packages = await this.getLinuxPackageCount();
+        initSystem = await this.getInitSystem();
+        diskInfo = await this.getLinuxDiskInfo();
+        processes = await this.getProcessCount();
+        swapInfo = await this.getLinuxSwapInfo();
+      } else if (platform === "win32") {
+        osInfo = `Windows ${arch}`;
+        kernelInfo = `Windows NT ${release}`;
+      } else if (platform === "darwin") {
+        osInfo = `macOS ${arch}`;
+        kernelInfo = `Darwin ${release}`;
+        packages = "Homebrew";
+        initSystem = "launchd";
+        processes = await this.getProcessCount();
+        diskInfo = await this.getMacDiskInfo();
+        swapInfo = await this.getMacSwapInfo();
+      }
+    } catch (error) {
+      console.warn(`[${this.PLUGIN_NAME}] 系统信息获取部分失败:`, error);
     }
 
     return {
@@ -554,7 +610,7 @@ Scan Time: ${scanTime}ms
       const osRelease = fs.readFileSync("/etc/os-release", "utf8");
       const prettyName = osRelease.match(/PRETTY_NAME="([^"]+)"/)?.[1] || "Debian GNU/Linux";
       return `${prettyName} ${arch}`;
-    } catch (e: unknown) {
+    } catch {
       return `Debian GNU/Linux 13 (trixie) ${arch}`;
     }
   }
@@ -563,7 +619,7 @@ Scan Time: ${scanTime}ms
     try {
       const kernel = this.safeExec("uname -r").trim();
       return `Linux ${kernel}`;
-    } catch (e: unknown) {
+    } catch {
       return "Linux 6.12.41+deb13-arm64";
     }
   }
@@ -572,7 +628,7 @@ Scan Time: ${scanTime}ms
     try {
       const count = this.safeExec("dpkg -l | grep '^ii' | wc -l").trim();
       return `${count} (dpkg)`;
-    } catch (e: unknown) {
+    } catch {
       return "763 (dpkg)";
     }
   }
@@ -591,13 +647,13 @@ Scan Time: ${scanTime}ms
         try {
           const initInfo = this.safeExec("ps -p 1 -o comm=").trim();
           return initInfo;
-        } catch (e: unknown) {
+        } catch {
           return "init";
         }
       }
 
       return "Unknown";
-    } catch (e: unknown) {
+    } catch {
       return "systemd 257.7-1";
     }
   }
@@ -616,8 +672,8 @@ Scan Time: ${scanTime}ms
           return this.formatByteUsage(usedBytes, totalBytes);
         }
       }
-    } catch (e: unknown) {
-      logger.error("[status] operation failed:", e);
+    } catch {
+      // ignore
     }
     return "Unknown";
   }
@@ -634,7 +690,7 @@ Scan Time: ${scanTime}ms
           return this.formatByteUsage(used, total);
         }
       }
-    } catch (e: unknown) {
+    } catch {
       try {
         const freeOutput = this.safeExec("free -h");
         const swapLine = freeOutput.split("\n").find((line) => line.startsWith("Swap:"));
@@ -646,7 +702,7 @@ Scan Time: ${scanTime}ms
             return this.formatByteUsage(used, total);
           }
         }
-      } catch (e: unknown) {
+      } catch {
         return "Unknown";
       }
     }
@@ -669,8 +725,8 @@ Scan Time: ${scanTime}ms
           return this.formatByteUsage(usedBytes, totalBytes);
         }
       }
-    } catch (e: unknown) {
-      logger.error("[status] operation failed:", e);
+    } catch {
+      // ignore
     }
     return "Unknown";
   }
@@ -681,7 +737,7 @@ Scan Time: ${scanTime}ms
       const swapUsage = this.safeExec(`${sysctlPath} vm.swapusage`).trim();
       const parsedSwap = this.parseMacSwapUsage(swapUsage);
       return parsedSwap || swapUsage;
-    } catch (e: unknown) {
+    } catch {
       return "Unknown";
     }
   }
@@ -706,7 +762,7 @@ Scan Time: ${scanTime}ms
         const usage = Math.round((1 - totalIdle / totalTick) * 100 * 100) / 100;
         return usage.toFixed(2);
       }
-    } catch (e: unknown) {
+    } catch {
       return "0.00";
     }
   }
@@ -715,13 +771,13 @@ Scan Time: ${scanTime}ms
     try {
       const startUsage = process.cpuUsage();
       const startTime = Date.now();
-      await sleep(100);
+      await new Promise((resolve) => setTimeout(resolve, 100));
       const endUsage = process.cpuUsage(startUsage);
       const endTime = Date.now();
       const elapsed = (endTime - startTime) / 1000;
       const cpuPercent = (endUsage.user + endUsage.system) / (elapsed * 1000000) * 100;
       return (Math.round(cpuPercent * 100) / 100).toString();
-    } catch (e: unknown) {
+    } catch {
       return "0.0";
     }
   }
@@ -730,7 +786,7 @@ Scan Time: ${scanTime}ms
     try {
       const count = this.safeExec("ps aux | wc -l").trim();
       return (parseInt(count) - 1).toString();
-    } catch (e: unknown) {
+    } catch {
       return "Unknown";
     }
   }
@@ -742,13 +798,13 @@ Scan Time: ${scanTime}ms
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
       return {
         nodejs: process.version,
-        mtcute: packageJson.dependencies?.['@mtcute/node']?.replace('^', '') || 'unknown',
+        teleproto: packageJson.dependencies?.teleproto?.replace('^', '') || 'unknown',
         telebox: readDisplayVersion()
       };
-    } catch (e: unknown) {
+    } catch {
       return {
         nodejs: process.version,
-        mtcute: 'unknown',
+        teleproto: 'unknown',
         telebox: readDisplayVersion()
       };
     }
@@ -771,7 +827,7 @@ Scan Time: ${scanTime}ms
         }
       }
       return "enp0s6";
-    } catch (e: unknown) {
+    } catch {
       return "enp0s6";
     }
   }
@@ -880,14 +936,15 @@ Scan Time: ${scanTime}ms
 
   // 统一错误处理
   private async handleError(
-    msg: MessageContext,
+    msg: Api.Message,
     error: unknown,
     context: string
   ): Promise<void> {
-    const errorMessage = getErrorMessage(error);
-    logger.error(`[${this.PLUGIN_NAME}] ${context} 错误:`, error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[${this.PLUGIN_NAME}] ${context} 错误:`, error);
     await msg.edit({
       text: `❌ 操作失败: ${errorMessage}`,
+      parseMode: "html",
     });
   }
 }

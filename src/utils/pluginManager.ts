@@ -472,20 +472,8 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
   // 并行清理所有旧插件
   await Promise.all(oldPlugins.map((plugin) => runPluginCleanup(plugin, runtime)));
 
-  const snapshot = runtime.context.snapshot();
-  // mtcute has no listEventHandlers(); the dispatcher is torn down via its
-  // tracked disposable (dispatcher.destroy()), counted among trackedDisposables.
-  const disposableCount = snapshot.trackedDisposables;
-  const resourceSummary = Object.entries(snapshot.stats)
-    .filter(([, stat]) => stat.created > 0 || stat.active > 0)
-    .map(([kind, stat]) => `${kind}:active=${stat.active},created=${stat.created}`)
-    .join("; ") || "none";
-  const residualSummary = snapshot.residualResources
-    .slice(0, 10)
-    .map((resource) => `${resource.kind}:${resource.label}:${resource.state}:${resource.ageMs}ms`)
-    .join("; ") || "none";
   logger.info(
-    `[RELOAD] Generation ${runtime.generation} stopped ingress; ${disposableCount} lifecycle disposables are awaiting drain. resources=[${resourceSummary}] residual=[${residualSummary}]`
+    `[RELOAD] Gen${runtime.generation} unloading plugins`
   );
 
   validPlugins.length = 0;
