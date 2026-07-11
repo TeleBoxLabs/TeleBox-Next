@@ -36,6 +36,7 @@ export interface TeleBoxRuntime {
   signal: AbortSignal;
   createdAt: number;
   meId?: string;
+  dispatcher?: import("@mtcute/dispatcher").Dispatcher;
 }
 
 const RUNTIME_DRAIN_TIMEOUT_MS = 15_000;

@@ -11,7 +11,7 @@ import type { TeleBoxRuntime } from "./runtimeManager";
 /** Lazy resolve to avoid circular import with runtimeManager. */
 function getCurrentGen(): number {
   const { getCurrentGeneration } = require("./runtimeManager") as typeof import("./runtimeManager");
-  return getCurrentGen();
+  return getCurrentGeneration();
 }
 
 type PluginEntry = {
