@@ -476,7 +476,8 @@ class ReloadPlugin extends Plugin {
       await msg.delete();
       scheduleTrackedTimeout(async () => {
         try {
-          await execFileAsync("pm2", ["restart", "telebox"]);
+          const pm2Name = process.env.name || "telebox-mtcute";
+          await execFileAsync("pm2", ["restart", pm2Name]);
         } catch (error: unknown) {
           logger.error("PM2 restart failed:", error);
         }
