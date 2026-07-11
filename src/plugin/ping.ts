@@ -3,8 +3,10 @@ import { getPrefixes } from "@utils/pluginManager";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { html } from "@mtcute/html-parser";
 import type { MessageContext } from "@mtcute/dispatcher";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
+import * as http from "http";
+import * as https from "https";
 import { createConnection } from "net";
 import * as dns from "dns";
 
@@ -16,7 +18,7 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // 数据中心IP地址映射 (参考PagerMaid-Modify)
 const DCs = {
@@ -91,13 +93,13 @@ async function httpPing(
 ): Promise<number> {
   return new Promise((resolve) => {
     const start = performance.now();
-    const protocol = useHttps ? require("https") : require("http");
+    const protocol = useHttps ? https : http;
     const port = useHttps ? 443 : 80;
 
     const req = protocol.request(
       {
         hostname,
-        port,
+        port: String(port),
         path: "/",
         method: "HEAD",
         timeout: 5000,
@@ -105,7 +107,7 @@ async function httpPing(
           "User-Agent": "TeleBox-Ping/1.0",
         },
       },
-      (res: { statusCode?: number; headers?: Record<string, string> }) => {
+      () => {
         const end = performance.now();
         req.destroy();
         resolve(Math.round(end - start));
@@ -152,8 +154,7 @@ async function systemPing(
   count: number = 3
 ): Promise<{ avg: number; loss: number; output: string }> {
   try {
-    const pingCmd = `ping -c ${count} -W 5 ${target}`;
-    const { stdout, stderr } = await execAsync(pingCmd, { timeout: 10000 });
+    const { stdout, stderr } = await execFileAsync("ping", ["-c", String(count), "-W", "5", target], { timeout: 10000 });
 
     logger.info(stdout);
 
@@ -204,12 +205,12 @@ async function pingDataCenters(): Promise<string[]> {
     const ip = DCs[dc as keyof typeof DCs];
     const location = dcLocations[dc];
     try {
-      const { stdout } = await execAsync(
-        `ping -c 1 ${ip} | awk -F 'time=' '/time=/ {print $2}' | awk '{print $1}'`
-      );
+      const { stdout } = await execFileAsync("ping", ["-c", "1", ip], { timeout: 5000 });
       let pingTime = "0";
       try {
-        pingTime = String(Math.round(parseFloat(stdout.trim())));
+        // Parse ping output: extract time=XX.X ms
+        const timeMatch = stdout.match(/time=([0-9.]+)/);
+        pingTime = timeMatch ? String(Math.round(parseFloat(timeMatch[1]))) : "0";
       } catch (_e: unknown) {
         // ping 输出解析失败时回退到 "0"
         logger.debug(`[ping] 解析 ping 输出失败: ${stdout.trim()}`);
