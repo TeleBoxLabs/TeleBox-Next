@@ -1,6 +1,5 @@
 import { exec } from "child_process";
 import { Plugin, type PluginRuntimeContext } from "@utils/pluginBase";
-import { Api } from "teleproto";
 import type { GenerationContext } from "@utils/generationContext";
 import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 
@@ -62,7 +61,7 @@ function runOwnedExec(shellCommand: string, lifecycle: GenerationContext): Promi
   );
 }
 
-async function handleExec(params: { msg: Api.Message; shellCommand: string; lifecycle: GenerationContext }) {
+async function handleExec(params: { msg: any; shellCommand: string; lifecycle: GenerationContext }) {
   const { msg, shellCommand, lifecycle } = params;
 
   const start = Date.now();
@@ -157,10 +156,10 @@ class ExecPlugin extends Plugin {
   }
 
   description: string = `运行 shell 命令`;
-  cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
+  cmdHandlers: Record<string, (msg: any) => Promise<void>> = {
     exec: async (msg) => {
       const lifecycle = this.resolveLifecycle();
-      const shellCommand = msg.message.slice(1).replace(/^\S+\s+/, "");
+      const shellCommand = msg.text.slice(1).replace(/^\S+\s+/, "");
       await handleExec({ msg, shellCommand, lifecycle });
     },
   };

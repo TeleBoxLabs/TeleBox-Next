@@ -1,7 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
-import { Api } from "teleproto";
 import * as os from "os";
 import * as fs from "fs";
 import { execSync, ExecSyncOptions } from "child_process";
@@ -227,7 +226,7 @@ class TeleBoxSystemMonitor extends Plugin {
   };
 
   // 处理 status 命令
-  private async handleStatus(msg: Api.Message): Promise<void> {
+  private async handleStatus(msg: any): Promise<void> {
     try {
       const parts = msg.text?.trim().split(/\s+/) || [];
       const subCommand = parts[1]?.toLowerCase();
@@ -257,7 +256,7 @@ class TeleBoxSystemMonitor extends Plugin {
   }
 
   // 处理 sysinfo 命令
-  private async handleSysInfo(msg: Api.Message): Promise<void> {
+  private async handleSysInfo(msg: any): Promise<void> {
     try {
       await msg.edit({
         text: "🔄 正在获取系统信息...",
@@ -275,7 +274,7 @@ class TeleBoxSystemMonitor extends Plugin {
 
   // ==================== 状态显示 ====================
   // 显示系统状态
-  private async showStatus(msg: Api.Message): Promise<void> {
+  private async showStatus(msg: any): Promise<void> {
     await msg.edit({
       text: "🔄 正在获取状态信息...",
       parseMode: "html",
@@ -304,14 +303,14 @@ class TeleBoxSystemMonitor extends Plugin {
       `Uptime: <code>${Math.round((Date.now() - context.createdAt) / 1000)}s</code>`;
   }
 
-  private async handleLifecycleStatus(msg: Api.Message): Promise<void> {
+  private async handleLifecycleStatus(msg: any): Promise<void> {
     await msg.edit({
       text: this.formatLifecycleDiagnostics(),
       parseMode: "html",
     });
   }
 
-  private async handleLifecycleStress(msg: Api.Message): Promise<void> {
+  private async handleLifecycleStress(msg: any): Promise<void> {
     const text = this.formatLifecycleDiagnostics() +
       `\n\n<b>Repeatable stress scenarios</b>\n` +
       `• idle repeated reload: compare active counters before/after reload; old generation residual should become none.\n` +
@@ -328,7 +327,7 @@ class TeleBoxSystemMonitor extends Plugin {
   }
 
   // 显示当前模板内容
-  private async handleShowTemplate(msg: Api.Message): Promise<void> {
+  private async handleShowTemplate(msg: any): Promise<void> {
     if (!this.db) await this.initDB();
     const template = this.db.data.template || DEFAULT_TEMPLATE;
 
@@ -463,7 +462,7 @@ class TeleBoxSystemMonitor extends Plugin {
 
   // ==================== 模板管理 ====================
   // 设置自定义模板
-  private async handleSetTemplate(msg: Api.Message): Promise<void> {
+  private async handleSetTemplate(msg: any): Promise<void> {
     const replyMsg = await safeGetReplyMessage(msg);
     if (!replyMsg || !replyMsg.text) {
       await msg.edit({
@@ -484,7 +483,7 @@ class TeleBoxSystemMonitor extends Plugin {
   }
 
   // 重置默认模板
-  private async handleResetTemplate(msg: Api.Message): Promise<void> {
+  private async handleResetTemplate(msg: any): Promise<void> {
     if (!this.db) await this.initDB();
     this.db.data.template = DEFAULT_TEMPLATE;
     await this.db.write();
@@ -936,7 +935,7 @@ Scan Time: ${scanTime}ms
 
   // 统一错误处理
   private async handleError(
-    msg: Api.Message,
+    msg: any,
     error: unknown,
     context: string
   ): Promise<void> {
