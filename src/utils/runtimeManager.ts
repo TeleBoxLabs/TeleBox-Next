@@ -79,6 +79,52 @@ import { initializeClientSession } from "./loginManager";
     // teleproto not available — skip patch
   }
 })();
+
+// ── Mitigate teleproto Network: clear permanent auth key on media DC break ─
+// When a media DC's permanent auth key is broken, _onSenderBreak for media
+// DCs only resets the temp key.  Clearing mediaTempFailed (above) causes the
+// next connection to attempt temp-key binding — but that binding uses the
+// (broken) permanent key as its anchor, so it fails every time in a loop.
+//
+// Fix: after the original _onSenderBreak, also wipe the permanent auth key
+// for the affected media DC so the next connection triggers a full
+// auth.ExportAuthorization + auth.ImportAuthorization.
+// ───────────────────────────────────────────────────────────────────────────
+(function patchNetworkOnSenderBreak() {
+  try {
+    const { Network } = require("teleproto/network/Network");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { bareDcId, isDownloadDcId, isUploadDcId } = require("teleproto/network/core_types");
+    if (!Network) return;
+
+    const originalBreak = Network.prototype._onSenderBreak as (
+      shiftedDcId: number,
+      slot: any
+    ) => void;
+
+    Network.prototype._onSenderBreak = function (
+      this: any,
+      shiftedDcId: number,
+      slot: any
+    ) {
+      originalBreak.call(this, shiftedDcId, slot);
+
+      if (isDownloadDcId(shiftedDcId) || isUploadDcId(shiftedDcId)) {
+        const dcId = bareDcId(shiftedDcId);
+        try {
+          const dcenter = this._client._dcenters.get(dcId);
+          if (dcenter) {
+            dcenter.authKey.setKey(undefined).catch(() => {});
+            dcenter.mediaBound = false;
+          }
+          this._client.session.setAuthKey(undefined, dcId);
+        } catch (_) {}
+      }
+    };
+  } catch (_) {
+    // teleproto not available — skip patch
+  }
+})();
 import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
