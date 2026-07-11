@@ -18,6 +18,8 @@ import {
   type GenerationContext,
 } from "./generationContext";
 
+export type { DrainResult, GenerationContext };
+
 export type RuntimeState =
   | "starting"
   | "running"
