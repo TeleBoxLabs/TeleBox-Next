@@ -1,49 +1,7 @@
-import { TelegramClient, events } from "teleproto";
-import { UpdateConnectionState } from "teleproto/network";
-import { StringSession } from "teleproto/sessions";
-import { getApiConfig } from "./apiConfig";
-import { readAppName } from "./teleboxInfoHelper";
-import { logger } from "./logger";
+import { TelegramClient } from "@mtcute/node";
+import { createMtcuteClient, destroyMtcuteClient } from "./mtcuteClient";
 import { initializeClientSession } from "./loginManager";
-
-// ── Fix teleproto main-DC media upload deadlock ────────────────────────────
-// Route main-DC upload parts through the already-authorized main sender.
-(function patchMainDcMediaUpload() {
-  try {
-    const { MediaScheduler } = require("teleproto/network/MediaScheduler");
-    if (!MediaScheduler) return;
-
-    interface PatchedMediaScheduler {
-      _client: {
-        session: { dcId: number };
-        invoke(request: unknown): Promise<unknown>;
-      };
-    }
-
-    const originalSavePart = MediaScheduler.prototype.savePart as (
-      dcId: number,
-      request: unknown,
-      signal?: AbortSignal
-    ) => Promise<unknown>;
-
-    MediaScheduler.prototype.savePart = async function (
-      this: PatchedMediaScheduler,
-      dcId: number,
-      request: unknown,
-      signal?: AbortSignal
-    ): Promise<unknown> {
-      if (dcId !== this._client.session.dcId) {
-        return originalSavePart.call(this, dcId, request, signal);
-      }
-      if (signal?.aborted) {
-        throw new Error("Media operation aborted");
-      }
-      return this._client.invoke(request);
-    };
-  } catch (_) {
-    // teleproto not available — skip patch
-  }
-})();
+import { logger } from "./logger";
 import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
@@ -114,30 +72,15 @@ async function withTimeout<T>(
 }
 
 async function createClient(): Promise<TelegramClient> {
-  const api = await getApiConfig();
-  const proxy = api.proxy;
-  if (proxy) {
-    console.log("使用代理连接 Telegram:", proxy);
-  }
-
-  const client = new TelegramClient(
-    new StringSession(api.session),
-    api.api_id!,
-    api.api_hash!,
-    {
-      connectionRetries: Infinity,
-      reconnectRetries: Infinity,
-      autoReconnect: true,
-      deviceModel: readAppName(),
-      proxy,
-    }
-  );
-  client.setLogLevel(logger.getGramJSLogLevel() as never);
-  return client;
+  return await createMtcuteClient();
 }
 
 async function destroyClient(client: TelegramClient): Promise<void> {
-  await withTimeout(client.destroy(), CLIENT_DESTROY_TIMEOUT_MS, "destroy client");
+  await withTimeout(
+    destroyMtcuteClient(client),
+    CLIENT_DESTROY_TIMEOUT_MS,
+    "destroy client"
+  );
 }
 
 async function buildRuntime(): Promise<TeleBoxRuntime> {
@@ -159,42 +102,44 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
   );
   runtime.meId = sessionInfo.meId;
 
-  // Connection watchdog: if the underlying client reports disconnected and
-  // stays that way beyond the grace period, trigger a full runtime reload.
+  // mtcute publishes connection states through onConnectionState. Rebuild the
+  // full runtime only when it remains offline beyond the grace period.
   let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const DISCONNECT_RELOAD_DELAY_MS = 30_000;
-  client.addEventHandler((event) => {
-    // Filter: only handle UpdateConnectionState events
-    if (!(event instanceof UpdateConnectionState)) return;
-    if (event.state === UpdateConnectionState.disconnected) {
+  const onConnectionState = (state: string): void => {
+    if (state === "offline") {
       if (disconnectTimer) return; // already scheduled
-      console.log(`[RUNTIME] Client disconnected, scheduling reload in ${DISCONNECT_RELOAD_DELAY_MS / 1000}s...`);
+      logger.warn(
+        `[RUNTIME] Client offline, scheduling reload in ${DISCONNECT_RELOAD_DELAY_MS / 1000}s...`
+      );
       disconnectTimer = setTimeout(async () => {
         disconnectTimer = null;
         if (runtime.state !== "running") return;
-        console.log("[RUNTIME] Disconnect grace period elapsed, triggering runtime reload...");
+        logger.warn("[RUNTIME] Offline grace period elapsed, triggering runtime reload...");
         try {
           await reloadRuntime();
-        } catch (err) {
-          console.error("[RUNTIME] Auto-reload on disconnect failed:", err);
+        } catch (err: unknown) {
+          logger.error("[RUNTIME] Auto-reload on disconnect failed:", err);
         }
       }, DISCONNECT_RELOAD_DELAY_MS);
-    } else if (event.state === UpdateConnectionState.connected) {
+    } else if (state === "connected") {
       if (disconnectTimer) {
         clearTimeout(disconnectTimer);
         disconnectTimer = null;
-        console.log("[RUNTIME] Client reconnected before reload, canceling scheduled reload.");
+        logger.info("[RUNTIME] Client reconnected before reload, canceling scheduled reload.");
       }
     }
-  }, new events.Raw({}));
+  };
+  client.onConnectionState.add(onConnectionState);
 
-  // Register cleanup so the timer doesn't fire after destroy/shutdown.
+  // Register cleanup so neither listener nor timer leaks across generations.
   context.trackDisposable(() => {
+    client.onConnectionState.remove(onConnectionState);
     if (disconnectTimer) {
       clearTimeout(disconnectTimer);
       disconnectTimer = null;
     }
-  }, { label: "runtime:disconnect-timer-cleanup" });
+  }, { label: "runtime:disconnect-watchdog-cleanup" });
 
   return runtime;
 }
@@ -212,7 +157,8 @@ async function resolvePendingSwitchNotification(
     const label = currentVersion === "teleproto" ? "teleproto (gramjs)" : "mtcute (native)";
     const text = `🎉 **切换完成！** 现在运行的是 ${icon} ${label}\n\n想切回去？发 \`.switch revert\` 就行。`;
 
-    await client.editMessage(notification.chatId, {
+    await client.editMessage({
+      chatId: notification.chatId,
       message: notification.msgId,
       text,
     });
@@ -240,7 +186,7 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
   try {
     await loadPluginsForRuntime(runtime);
     // 切换后上线后，编辑之前留下的"正在切换…"通知消息
-    await resolvePendingSwitchNotification(runtime.client, "teleproto");
+    await resolvePendingSwitchNotification(runtime.client, "mtcute");
     runtime.state = "running";
     return runtime;
   } catch (error) {
