@@ -13,6 +13,9 @@ import {
   type GenerationResourceStats,
   type ResourceResidual,
 } from "./generationContext";
+
+export type { GenerationContext, GenerationContextSnapshot, DrainResult, GenerationResourceStats, ResourceResidual };
+
 import { logger } from "@utils/logger";
 
 export type RuntimeState =
