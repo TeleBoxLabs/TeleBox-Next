@@ -111,6 +111,9 @@ import { initializeClientSession } from "./loginManager";
 
       if (isDownloadDcId(shiftedDcId) || isUploadDcId(shiftedDcId)) {
         const dcId = bareDcId(shiftedDcId);
+        // NEVER clear the permanent key for the session's main DC
+        if (dcId === this._client.session.dcId) return;
+
         try {
           const dcenter = this._client._dcenters.get(dcId);
           if (dcenter) {
