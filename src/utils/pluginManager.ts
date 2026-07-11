@@ -1,14 +1,18 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient, getCurrentGeneration } from "@utils/runtimeManager";
-import { tryGetCurrentRuntime } from "./runtimeManager";
 import { Dispatcher, MessageContext } from "@mtcute/dispatcher";
 import { AliasDB } from "./aliasDB";
 import { cronManager } from "./cronManager";
 import { logger } from "./logger";
 import { getErrorMessage } from "./errorHelpers";
 import type { TeleBoxRuntime } from "./runtimeManager";
+
+/** Lazy resolve to avoid circular import with runtimeManager. */
+function getCurrentGen(): number {
+  const { getCurrentGeneration } = require("./runtimeManager") as typeof import("./runtimeManager");
+  return getCurrentGen();
+}
 
 type PluginEntry = {
   original?: string;
@@ -325,6 +329,7 @@ async function dealCommandPlugin(
   // mtcute, a message is in Saved Messages when its chat id equals our own user
   // id. Compare against the self id cached on the runtime at login (avoids an
   // extra getMe() round-trip per message).
+  const { tryGetCurrentRuntime } = require("./runtimeManager") as typeof import("./runtimeManager");
   const meId = tryGetCurrentRuntime()?.meId;
   const isSavedMessage = meId != null && String(msg.chat.id) === meId;
   // gramjs `msg.out` → mtcute `msg.isOutgoing`. Only react to our own outgoing
@@ -377,7 +382,7 @@ function dealListenMessagePlugin(runtime: TeleBoxRuntime, dispatcher: Dispatcher
     const messageHandler = plugin.listenMessageHandler;
     if (messageHandler) {
       dispatcher.onNewMessage(async (msg: MessageContext) => {
-        if (runtime.generation !== getCurrentGeneration()) return;
+        if (runtime.generation !== getCurrentGen()) return;
         try {
           await messageHandler(msg);
         } catch (error: unknown) {
@@ -390,7 +395,7 @@ function dealListenMessagePlugin(runtime: TeleBoxRuntime, dispatcher: Dispatcher
         (plugin.name && listenerHandleEdited.includes(plugin.name))
       ) {
         dispatcher.onEditMessage(async (msg: MessageContext) => {
-          if (runtime.generation !== getCurrentGeneration()) return;
+          if (runtime.generation !== getCurrentGen()) return;
           try {
             await messageHandler(msg, { isEdited: true });
           } catch (error: unknown) {
@@ -407,7 +412,7 @@ function dealListenMessagePlugin(runtime: TeleBoxRuntime, dispatcher: Dispatcher
     if (Array.isArray(eventHandlers) && eventHandlers.length > 0) {
       for (const eh of eventHandlers) {
         const safeHandler = async (ctx: unknown) => {
-          if (runtime.generation !== getCurrentGeneration()) return;
+          if (runtime.generation !== getCurrentGen()) return;
           try {
             await eh.handler(ctx);
           } catch (error: unknown) {
@@ -439,7 +444,8 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
       for (const key of keys) {
         const cronTask = cronTasks[key];
         cronManager.set(key, cronTask.cron, async () => {
-          if (runtime.signal.aborted || runtime.generation !== getCurrentGeneration()) return;
+          if (runtime.signal.aborted || runtime.generation !== getCurrentGen()) return;
+          const { getGlobalClient } = require("./runtimeManager") as typeof import("./runtimeManager");
           const client = await getGlobalClient();
           await cronTask.handler(client);
         }, runtime.context);
@@ -523,11 +529,11 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
 
   // Root command router: outgoing messages → command dispatch.
   dispatcher.onNewMessage(async (msg: MessageContext) => {
-    if (runtime.generation !== getCurrentGeneration()) return;
+    if (runtime.generation !== getCurrentGen()) return;
     await dealNewMsgEvent(msg);
   });
   dispatcher.onEditMessage(async (msg: MessageContext) => {
-    if (runtime.generation !== getCurrentGeneration()) return;
+    if (runtime.generation !== getCurrentGen()) return;
     await dealEditedMsgEvent(msg);
   });
 
