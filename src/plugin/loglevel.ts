@@ -4,7 +4,7 @@ import { html } from "@mtcute/node";
 import type { MessageContext } from "@mtcute/dispatcher";
 import { logger, LogLevel } from "@utils/logger";
 
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];

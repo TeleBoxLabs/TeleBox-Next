@@ -1,9 +1,12 @@
 import "dotenv/config";
 
 import { startRuntime } from "@utils/runtimeManager";
+import { initPluginBaseConfig } from "@utils/pluginBase";
 
 import "./hook/patches/telegram.patch";
 import { logger } from "@utils/logger";
+
+initPluginBaseConfig();
 
 // 配置全局 HTTP 代理 - 让所有 axios 请求走代理
 // 支持环境变量：HTTP_PROXY, HTTPS_PROXY, NO_PROXY

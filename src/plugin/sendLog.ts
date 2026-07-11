@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs/promises";
 import { SendLogDB } from "@utils/sendLogDB";
 import type { MessageContext } from "@mtcute/dispatcher";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";
 

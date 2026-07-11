@@ -43,18 +43,21 @@ type PluginEventHandler = {
 };
 
 let cmdIgnoreEdited = true;
-try {
-  const raw = process.env.TB_CMD_IGNORE_EDITED;
-  if (raw !== undefined) {
-    const parsed = safeJsonParse<boolean>(raw);
-    cmdIgnoreEdited = parsed !== undefined ? parsed : true;
+
+export function initPluginBaseConfig(): void {
+  try {
+    const raw = process.env.TB_CMD_IGNORE_EDITED;
+    if (raw !== undefined) {
+      const parsed = safeJsonParse<boolean>(raw);
+      cmdIgnoreEdited = parsed !== undefined ? parsed : true;
+    }
+  } catch (e: unknown) {
+    logger.warn(`[pluginBase] TB_CMD_IGNORE_EDITED 环境变量解析失败，使用默认值 true:`, e);
   }
-} catch (e: unknown) {
-  logger.warn(`[pluginBase] TB_CMD_IGNORE_EDITED 环境变量解析失败，使用默认值 true:`, e);
+  logger.info(
+    `[CMD_IGNORE_EDITED] 命令监听忽略编辑的消息: ${cmdIgnoreEdited} (可使用环境变量 TB_CMD_IGNORE_EDITED 覆盖)`
+  );
 }
-logger.info(
-  `[CMD_IGNORE_EDITED] 命令监听忽略编辑的消息: ${cmdIgnoreEdited} (可使用环境变量 TB_CMD_IGNORE_EDITED 覆盖)`
-);
 
 abstract class Plugin {
   name?: string;

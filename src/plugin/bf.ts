@@ -6,7 +6,7 @@ import type { MtcuteFileLocation } from "@utils/mtcuteTypes";
 import type { Document, Video, Audio, Voice, Sticker } from "@mtcute/core";
 
 import { safeGetMessages } from "@utils/safeGetMessages";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as fs from "fs";
 import * as path from "path";

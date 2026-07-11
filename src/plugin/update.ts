@@ -4,7 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import type { MessageContext } from "@mtcute/dispatcher";
 import { npm_install_project_dependencies } from "@utils/npm_install";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { executeExit } from "./reload";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";

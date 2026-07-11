@@ -17,7 +17,7 @@ import type { MessageContext } from "@mtcute/dispatcher";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
-import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/globalClient";
+import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/runtimeManager";
 import type { Message } from "@mtcute/node";
 import { htmlEscape } from "@utils/htmlEscape";
 

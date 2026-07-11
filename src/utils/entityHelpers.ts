@@ -4,8 +4,8 @@ import type { Message } from "@mtcute/node";
 import {
   getCurrentGeneration,
   tryGetCurrentGenerationContext,
-  type GenerationContext,
-} from "./globalClient";
+} from "./runtimeManager";
+import type { GenerationContext } from "./generationContext";
 import { logger } from "@utils/logger";
 
 type EntityHelperCancellationContext = {

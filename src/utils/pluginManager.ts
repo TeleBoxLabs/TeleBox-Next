@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient, getCurrentGeneration } from "@utils/globalClient";
+import { getGlobalClient, getCurrentGeneration } from "@utils/runtimeManager";
 import { tryGetCurrentRuntime } from "./runtimeManager";
 import { Dispatcher, MessageContext } from "@mtcute/dispatcher";
 import { AliasDB } from "./aliasDB";
