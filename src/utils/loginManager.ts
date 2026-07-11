@@ -103,21 +103,12 @@ export async function initializeClientSession(
   logger.info("Connecting to Telegram...");
   throwIfAborted(lifecycle);
 
-  // Fast path: if storage already has a valid session, getMe() succeeds without
-  // any interactive prompt.
+  // Fast path: if storage already has a valid session, start() will reuse it
+  // and start the updates loop automatically (no interactive prompts).
   try {
-    const me = await client.getMe();
+    const me = await client.start();
     if (me) {
       logger.info(`✅ Existing session detected. Logged in as ${me.displayName}.`);
-      // CRITICAL: client.start() bundles startUpdatesLoop() for fresh logins,
-      // but the fast-path here only calls getMe() which connects but does NOT
-      // start the updates loop. Without it, Dispatcher.for(client) silently
-      // receives ZERO updates — commands never trigger. Explicitly start it.
-      try {
-        await (client as unknown as ClientInternals).startUpdatesLoop?.();
-      } catch (e: unknown) {
-        logger.warn("[LOGIN] startUpdatesLoop failed (updates may be inactive):", e);
-      }
       closeReadlineInterface();
       return { meId: me.id ? String(me.id) : undefined };
     }
