@@ -6,7 +6,7 @@ import { createDirectoryInTemp, createDirectoryInAssets } from "@utils/pathHelpe
 import fs from "fs";
 import path from "path";
 import { getGlobalClient } from "@utils/runtimeManager";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { JSONFilePreset } from "lowdb/node";
 import { getCurrentGenerationContext } from "@utils/runtimeManager";
@@ -18,7 +18,7 @@ import { cleanupStaleChannels } from "@utils/channelGapBreaker";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const exitDir = createDirectoryInTemp("exit");
 const exitFile = path.join(exitDir, "msg.json");
@@ -476,7 +476,7 @@ class ReloadPlugin extends Plugin {
       await msg.delete();
       scheduleTrackedTimeout(async () => {
         try {
-          await execAsync("pm2 restart telebox");
+          await execFileAsync("pm2", ["restart", "telebox"]);
         } catch (error: unknown) {
           logger.error("PM2 restart failed:", error);
         }

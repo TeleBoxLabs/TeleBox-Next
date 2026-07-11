@@ -51,7 +51,7 @@ class RePlugin extends Plugin {
               // 使用 mtcute forwardMessagesById 以支持论坛话题 (threadId)
               const toPeer = msg.chat.id;
               const fromPeer = replied.chat.id;
-              const ids = messages.map((m) => m.id);
+              const ids = messages.map((m: Message) => m.id);
               const threadId: number | undefined =
                 replied.replyToMessage?.threadId ?? replied.replyToMessage?.id ?? undefined;
 
@@ -77,7 +77,7 @@ class RePlugin extends Plugin {
         if (forwardFailed && messages && messages.length > 0) {
           for (let i = 0; i < repeat; i++) {
             await Promise.all(
-              messages.map((message) =>
+              messages.map((message: Message) =>
                 this.copyMessage(client, msg.chat.id, message, replied.replyToMessage?.threadId ?? replied.replyToMessage?.id ?? undefined)
               )
             );
