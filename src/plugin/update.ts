@@ -160,21 +160,36 @@ async function update(force = false, msg: MessageContext) {
 }
 
 // ── Auto-update helpers: mtcute replyText() returns raw Message, cast to MessageContext ──
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyCtx = any;
-
 async function replyAsCtx(msg: MessageContext, text: string): Promise<MessageContext> {
   return (await msg.replyText(text)) as unknown as MessageContext;
 }
 
 async function deleteMsgSafe(m: MessageContext | undefined): Promise<void> {
   if (!m) return;
-  try { await (m as AnyCtx).delete(); } catch (_) { /* ignore */ }
+  try {
+    // replyText() returns raw Message, not MessageContext — .delete() doesn't exist.
+    // Use client.deleteMessagesById with chat.id and message id.
+    const client = await getGlobalClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chatId = (m as any).chat?.id;
+    if (chatId) {
+      await client.deleteMessagesById(chatId, [m.id], { revoke: true });
+    }
+  } catch (_) { /* ignore */ }
 }
 
 async function editMsgSafe(m: MessageContext | undefined, text: string): Promise<void> {
   if (!m) return;
-  try { await (m as AnyCtx).edit({ text }); } catch (_) { /* ignore */ }
+  try {
+    // replyText() returns raw Message — .edit() doesn't exist.
+    // Use client.editMessage with chat.id and message id.
+    const client = await getGlobalClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chatId = (m as any).chat?.id;
+    if (chatId) {
+      await client.editMessage({ chatId, message: m.id, text });
+    }
+  } catch (_) { /* ignore */ }
 }
 
 // ── Auto-update for main repo ──────────────────────────────────────────
