@@ -3,7 +3,7 @@ import { getPrefixes } from "@utils/pluginManager";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import * as os from "os";
 import * as fs from "fs";
-import { execSync, ExecSyncOptions } from "child_process";
+import { execFileSync, ExecFileSyncOptions } from "child_process";
 import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
@@ -616,7 +616,7 @@ Scan Time: ${scanTime}ms
 
   private async getLinuxKernelInfo(): Promise<string> {
     try {
-      const kernel = this.safeExec("uname -r").trim();
+      const kernel = this.safeExecFile("uname", ["-r"]).trim();
       return `Linux ${kernel}`;
     } catch {
       return "Linux 6.12.41+deb13-arm64";
@@ -625,7 +625,9 @@ Scan Time: ${scanTime}ms
 
   private async getLinuxPackageCount(): Promise<string> {
     try {
-      const count = this.safeExec("dpkg -l | grep '^ii' | wc -l").trim();
+      const count = this.safeExecFile("dpkg", ["-l"])
+        .split("\n")
+        .filter((line) => line.startsWith("ii")).length;
       return `${count} (dpkg)`;
     } catch {
       return "763 (dpkg)";
@@ -638,13 +640,15 @@ Scan Time: ${scanTime}ms
         return "pm2";
       }
       if (fs.existsSync("/run/systemd/system")) {
-        const version = this.safeExec("systemctl --version | head -1").trim();
+        const version = this.safeExecFile("systemctl", ["--version"])
+          .split("\n")[0]
+          .trim();
         return version;
       }
 
       if (fs.existsSync("/sbin/init")) {
         try {
-          const initInfo = this.safeExec("ps -p 1 -o comm=").trim();
+          const initInfo = this.safeExecFile("ps", ["-p", "1", "-o", "comm="]).trim();
           return initInfo;
         } catch {
           return "init";
@@ -659,7 +663,7 @@ Scan Time: ${scanTime}ms
 
   private async getLinuxDiskInfo(): Promise<string> {
     try {
-      const dfOutput = this.safeExec("df -k / | tail -1").trim();
+      const dfOutput = this.lastOutputLine(this.safeExecFile("df", ["-k", "/"]));
       const parts = dfOutput.split(/\s+/);
       if (parts.length >= 5) {
         const totalBlocks = parseInt(parts[1], 10);
@@ -679,7 +683,7 @@ Scan Time: ${scanTime}ms
 
   private async getLinuxSwapInfo(): Promise<string> {
     try {
-      const freeOutput = this.safeExec("free -b");
+      const freeOutput = this.safeExecFile("free", ["-b"]);
       const swapLine = freeOutput.split("\n").find((line) => line.startsWith("Swap:"));
       if (swapLine) {
         const parts = swapLine.trim().split(/\s+/);
@@ -691,7 +695,7 @@ Scan Time: ${scanTime}ms
       }
     } catch {
       try {
-        const freeOutput = this.safeExec("free -h");
+        const freeOutput = this.safeExecFile("free", ["-h"]);
         const swapLine = freeOutput.split("\n").find((line) => line.startsWith("Swap:"));
         if (swapLine) {
           const parts = swapLine.trim().split(/\s+/);
@@ -712,7 +716,7 @@ Scan Time: ${scanTime}ms
   private async getMacDiskInfo(): Promise<string> {
     try {
       const targetPath = fs.existsSync("/System/Volumes/Data") ? "/System/Volumes/Data" : "/";
-      const dfOutput = this.safeExec(`df -k ${targetPath} | tail -1`).trim();
+      const dfOutput = this.lastOutputLine(this.safeExecFile("df", ["-k", targetPath]));
       const parts = dfOutput.split(/\s+/);
       if (parts.length >= 5) {
         const totalBlocks = parseInt(parts[1], 10);
@@ -733,7 +737,7 @@ Scan Time: ${scanTime}ms
   private async getMacSwapInfo(): Promise<string> {
     try {
       const sysctlPath = fs.existsSync("/usr/sbin/sysctl") ? "/usr/sbin/sysctl" : "sysctl";
-      const swapUsage = this.safeExec(`${sysctlPath} vm.swapusage`).trim();
+      const swapUsage = this.safeExecFile(sysctlPath, ["vm.swapusage"]).trim();
       const parsedSwap = this.parseMacSwapUsage(swapUsage);
       return parsedSwap || swapUsage;
     } catch {
@@ -746,7 +750,7 @@ Scan Time: ${scanTime}ms
     try {
       const platform = os.platform();
       if (platform === "win32") {
-        const result = this.safeExec('wmic cpu get loadpercentage /value');
+        const result = this.safeExecFile("wmic", ["cpu", "get", "loadpercentage", "/value"]);
         const match = result.match(/LoadPercentage=(\d+)/);
         return match ? parseFloat(match[1]).toFixed(2) : "0.00";
       } else {
@@ -783,8 +787,10 @@ Scan Time: ${scanTime}ms
 
   private async getProcessCount(): Promise<string> {
     try {
-      const count = this.safeExec("ps aux | wc -l").trim();
-      return (parseInt(count) - 1).toString();
+      const lines = this.safeExecFile("ps", ["aux"])
+        .trim()
+        .split("\n");
+      return Math.max(0, lines.length - 1).toString();
     } catch {
       return "Unknown";
     }
@@ -831,14 +837,23 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  // 安全执行系统命令
-  private safeExec(command: string, encoding: BufferEncoding = "utf8"): string {
-    const options: ExecSyncOptions = {
+  // 直接执行程序及参数，避免通过 shell 解析命令字符串。
+  private safeExecFile(
+    file: string,
+    args: readonly string[],
+    encoding: BufferEncoding = "utf8"
+  ): string {
+    const options: ExecFileSyncOptions = {
       encoding,
       timeout: EXEC_TIMEOUT,
       stdio: ["ignore", "pipe", "ignore"] // 隐藏 stderr
     };
-    return String(execSync(command, options));
+    return String(execFileSync(file, args, options));
+  }
+
+  private lastOutputLine(output: string): string {
+    const lines = output.trim().split("\n");
+    return lines[lines.length - 1] ?? "";
   }
 
   // 解析人类可读的大小
