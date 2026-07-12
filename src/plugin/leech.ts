@@ -7,17 +7,10 @@ import { LeechService } from "@utils/leech/leechService";
 import { StructuredLeechLogger, createLeechActionId } from "@utils/leech/structuredLogger";
 import { parseLeechDateRange } from "@utils/leech/dateRange";
 import type { MessageContext } from "@mtcute/dispatcher";
+import { htmlEscape } from "@utils/htmlEscape";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0] || ".";
-
-function htmlEscape(input: unknown): string {
-  return String(input ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function splitArgs(input: string): string[] {
   const args: string[] = [];
