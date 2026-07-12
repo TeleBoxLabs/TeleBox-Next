@@ -166,16 +166,43 @@ async function replyAsCtx(msg: MessageContext, text: string): Promise<MessageCon
 
 async function deleteMsgSafe(m: MessageContext | undefined): Promise<void> {
   if (!m) return;
+  // Snapshot chat.id before any blocking operation — m may become stale after reload.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chatId = (m as any).chat?.id;
+  const msgId = m.id;
+  if (!chatId) return;
   try {
-    // replyText() returns raw Message, not MessageContext — .delete() doesn't exist.
-    // Use client.deleteMessagesById with chat.id and message id.
     const client = await getGlobalClient();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const chatId = (m as any).chat?.id;
-    if (chatId) {
-      await client.deleteMessagesById(chatId, [m.id], { revoke: true });
-    }
+    await client.deleteMessagesById(chatId, [msgId], { revoke: true });
   } catch (_) { /* ignore */ }
+}
+
+/**
+ * Delete a status message by peerId+msgId using a fresh client.
+ * Uses exponential backoff retry — the new client may need several seconds
+ * to fully establish its connection after reloadRuntime() or npm install.
+ */
+async function deleteStatusMessage(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  chatId: any,
+  msgId: number
+): Promise<void> {
+  const delays = [0, 2000, 4000, 8000]; // exponential backoff
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+    try {
+      const client = await getGlobalClient();
+      await client.deleteMessagesById(chatId, [msgId], { revoke: true });
+      logger.info(`[auto-update] 状态消息已删除 (attempt ${attempt + 1})`);
+      return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
+      logger.error(`[auto-update] 删除状态消息失败 (attempt ${attempt + 1}): ${err?.message || err}`);
+    }
+  }
+  logger.error("[auto-update] 状态消息删除最终失败，已重试4次");
 }
 
 async function editMsgSafe(m: MessageContext | undefined, text: string): Promise<void> {
@@ -198,6 +225,13 @@ async function autoUpdateMainRepo(githubMsg: MessageContext): Promise<void> {
   try {
     statusMsg = await replyAsCtx(githubMsg, "🤖 自动更新：检测到主仓库新提交，正在更新…");
 
+    // Snapshot chat.id+msgId before any blocking operation —
+    // npm_install_project_dependencies() blocks the event loop and the
+    // statusMsg object may become stale afterwards.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const targetChatId = (statusMsg as any).chat?.id;
+    const targetMsgId = statusMsg.id;
+
     const branchInfo = await findMainBranch();
     if (!branchInfo) {
       throw new Error("未找到可用的远程分支");
@@ -208,8 +242,8 @@ async function autoUpdateMainRepo(githubMsg: MessageContext): Promise<void> {
     await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
     npm_install_project_dependencies();
 
-    // Success — delete status message, then restart silently
-    await deleteMsgSafe(statusMsg);
+    // Success — delete status message using a fresh client with retry, then restart silently.
+    await deleteStatusMessage(targetChatId, targetMsgId);
     await executeAutoExit();
   } catch (error: unknown) {
     const errDetail = getErrorMessage(error) || String(error);
@@ -229,10 +263,16 @@ async function executeAutoExit(): Promise<void> {
 async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
   try {
     const statusMsg = await replyAsCtx(githubMsg, "🤖 自动更新：检测到插件仓库新提交，正在更新插件…");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fallbackChatId = (statusMsg as any).chat?.id;
+    const fallbackMsgId = statusMsg.id;
+
     const result = await updateAllPlugins(statusMsg);
 
     if (result.failedCount === 0) {
-      await deleteMsgSafe(statusMsg);
+      const targetChatId = result.statusPeerId ?? fallbackChatId;
+      const targetMsgId = result.statusMsgId ?? fallbackMsgId;
+      await deleteStatusMessage(targetChatId, targetMsgId);
     }
   } catch (error: unknown) {
     logger.error("[auto-update] 插件更新异常:", getErrorMessage(error) || String(error));
