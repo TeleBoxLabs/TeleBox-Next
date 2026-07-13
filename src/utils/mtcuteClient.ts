@@ -18,9 +18,10 @@ import fs from "fs";
  * option), so there is no StringSession concept — we pass a file path and let
  * mtcute manage auth keys / DC state / peer cache in `session.db`.
  *
- * The legacy `config.json.session` (a gramjs StringSession) is NOT directly
- * convertible to mtcute storage; loginManager handles first-run login via
- * `client.start()` when the SQLite storage has no auth keys yet.
+ * The legacy `config.json.session` (a gramjs/teleproto StringSession) can be
+ * converted offline via `@mtcute/convert` + `versionSwitchSessionConvert.ts`
+ * during `.switch go`. Runtime still uses SQLite (`session.db` or
+ * `config.json._switchSessionPath` for switch-injected external sessions).
  */
 
 const SESSION_DB_PATH = (() => {

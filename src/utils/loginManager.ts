@@ -15,9 +15,10 @@ import type { ClientInternals } from "./clientInternals";
  * also bundles the entire interactive login flow (phone + code + 2FA + QR),
  * which replaces the hand-rolled gramjs QR polling loop.
  *
- * The legacy `config.json.session` (a gramjs StringSession) is NOT compatible
- * with mtcute's session format and cannot be imported — first run requires a
- * fresh interactive login that writes auth keys into session.db.
+ * The legacy `config.json.session` (a gramjs/teleproto StringSession) is
+ * offline-convertible via `@mtcute/convert` during `.switch go`
+ * (`versionSwitchSessionConvert.ts`). Interactive `client.start()` remains
+ * for first-run when no session exists at all.
  */
 
 let rl: Interface | null = null;

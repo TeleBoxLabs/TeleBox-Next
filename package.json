@@ -11,7 +11,13 @@
     "type": "git",
     "url": "git+https://github.com/TiaraBasori/TeleBox_mtcute.git"
   },
-  "keywords": ["telegram", "bot", "mtcute", "telebox", "typescript"],
+  "keywords": [
+    "telegram",
+    "bot",
+    "mtcute",
+    "telebox",
+    "typescript"
+  ],
   "author": "TiaraBasori <mintabyss233@gmail.com>",
   "license": "LGPL-2.1-only",
   "type": "commonjs",
@@ -30,6 +36,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@mtcute/convert": "^0.30.1",
     "@mtcute/dispatcher": "^0.30.1",
     "@mtcute/node": "^0.30.1",
     "@vitalets/google-translate-api": "^9.2.1",
@@ -63,8 +70,8 @@
   },
   "devDependencies": {
     "@types/archiver": "^6.0.3",
-    "@types/big-integer": "^0.0.30",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/big-integer": "^0.0.30",
     "@types/cron": "^2.0.1",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.20",
