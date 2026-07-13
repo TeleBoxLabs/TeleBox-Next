@@ -173,6 +173,16 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
     await loadPluginsForRuntime(runtime);
     // 切换后上线后，编辑之前留下的"正在切换…"通知消息
     await resolvePendingSwitchNotification(runtime.client, "mtcute");
+    void (async () => {
+      try {
+        const mod = require("../plugin/update") as {
+          flushPendingStatusDeletes?: () => Promise<void>;
+        };
+        await mod.flushPendingStatusDeletes?.();
+      } catch (e) {
+        logger.warn("[RUNTIME] pending status deletes:", e);
+      }
+    })();
     runtime.state = "running";
     return runtime;
   } catch (error) {

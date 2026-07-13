@@ -191,31 +191,71 @@ async function deleteMsgSafe(m: MessageContext | undefined): Promise<void> {
 }
 
 /**
- * Delete a status message by peerId+msgId using a fresh client.
- * Uses exponential backoff retry — the new client may need several seconds
- * to fully establish its connection after reloadRuntime() or npm install.
+ * Delete a status message by chatId+msgId using a fresh client.
+ * After npm install / reloadRuntime the connection may be dead — retry with
+ * backoff, then queue to ~/.telebox/pending_status_deletes.json for next boot.
  */
 async function deleteStatusMessage(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   chatId: any,
   msgId: number
-): Promise<void> {
-  const delays = [0, 2000, 4000, 8000]; // exponential backoff
+): Promise<boolean> {
+  const peer = chatId == null ? null : String(chatId);
+  if (!peer || !msgId) return false;
+  const delays = [0, 2000, 4000, 8000, 15000];
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt] > 0) {
       await new Promise((r) => setTimeout(r, delays[attempt]));
     }
     try {
       const client = await getGlobalClient();
-      await client.deleteMessagesById(chatId, [msgId], { revoke: true });
+      await client.deleteMessagesById(peer, [msgId], { revoke: true });
       logger.info(`[auto-update] 状态消息已删除 (attempt ${attempt + 1})`);
-      return;
+      return true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       logger.error(`[auto-update] 删除状态消息失败 (attempt ${attempt + 1}): ${err?.message || err}`);
     }
   }
-  logger.error("[auto-update] 状态消息删除最终失败，已重试4次");
+  logger.error("[auto-update] 状态消息删除最终失败 — 写入待删队列");
+  try {
+    const file = path.join(os.homedir(), ".telebox", "pending_status_deletes.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    let items: Array<{ chatId: string; msgId: number; queuedAt: number }> = [];
+    if (fs.existsSync(file)) {
+      try { items = JSON.parse(fs.readFileSync(file, "utf8")); } catch { items = []; }
+    }
+    if (!Array.isArray(items)) items = [];
+    items = items.filter((x) => !(x.chatId === peer && x.msgId === msgId));
+    items.push({ chatId: peer, msgId, queuedAt: Date.now() });
+    fs.writeFileSync(file, JSON.stringify(items.slice(-50), null, 2), "utf8");
+  } catch (e) {
+    logger.error("[auto-update] 写入待删队列失败:", e);
+  }
+  return false;
+}
+
+/** Flush deletes that failed while the client was dead. */
+export async function flushPendingStatusDeletes(): Promise<void> {
+  const file = path.join(os.homedir(), ".telebox", "pending_status_deletes.json");
+  if (!fs.existsSync(file)) return;
+  let items: Array<{ chatId: string; msgId: number; queuedAt: number }> = [];
+  try { items = JSON.parse(fs.readFileSync(file, "utf8")); } catch { return; }
+  if (!Array.isArray(items) || items.length === 0) return;
+  logger.info(`[auto-update] flushing ${items.length} pending status delete(s)`);
+  const remaining: typeof items = [];
+  for (const item of items) {
+    if (Date.now() - item.queuedAt > 7 * 24 * 3600 * 1000) continue;
+    try {
+      const client = await getGlobalClient();
+      await client.deleteMessagesById(item.chatId, [item.msgId], { revoke: true });
+      logger.info(`[auto-update] pending delete ok chat=${item.chatId} msg=${item.msgId}`);
+    } catch (err: unknown) {
+      logger.warn(`[auto-update] pending delete still failing:`, err);
+      remaining.push(item);
+    }
+  }
+  fs.writeFileSync(file, JSON.stringify(remaining, null, 2), "utf8");
 }
 
 async function editMsgSafe(m: MessageContext | undefined, text: string): Promise<void> {
@@ -242,7 +282,7 @@ async function autoUpdateMainRepo(githubMsg: MessageContext): Promise<void> {
     // npm_install_project_dependencies() blocks the event loop and the
     // statusMsg object may become stale afterwards.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const targetChatId = (statusMsg as any).chat?.id;
+    const targetChatId = String((statusMsg as any).chat?.id ?? "");
     const targetMsgId = statusMsg.id;
 
     const branchInfo = await findMainBranch();
@@ -277,7 +317,7 @@ async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
   try {
     const statusMsg = await replyAsCtx(githubMsg, "🤖 自动更新：检测到插件仓库新提交，正在更新插件…");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fallbackChatId = (statusMsg as any).chat?.id;
+    const fallbackChatId = String((statusMsg as any).chat?.id ?? "");
     const fallbackMsgId = statusMsg.id;
 
     const result = await updateAllPlugins(statusMsg);
@@ -294,9 +334,35 @@ async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
 
 // ── GitHubBot message parsing ──────────────────────────────────────────
 const GITHUB_CHANNEL_ID = "-1003061608291";
+const GITHUB_BOT_USER_ID = "107550100";
+const GITHUB_BOT_USERNAME = "githubbot";
 
-const MAIN_REPO_PATTERN = /new commit.*to\s+(TeleBox|TeleBox_M|TeleBox-Next)\s*:\s*main/i;
-const PLUGIN_REPO_PATTERN = /new commit.*to\s+(TeleBox_Plugins|TeleBox-Next_Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
+const MAIN_REPO_PATTERN =
+  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox|TeleBox_M|TeleBox-Next)\s*:\s*main/i;
+const PLUGIN_REPO_PATTERN =
+  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox_Plugins|TeleBox_M_Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
+
+function normalizeChatId(msg: MessageContext): string {
+  const id = msg.chat?.id;
+  if (id != null) return String(id);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyMsg = msg as any;
+  if (anyMsg.chatId != null) return String(anyMsg.chatId);
+  return "";
+}
+
+function isGitHubBot(msg: MessageContext): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sender = msg.sender as any;
+  const sid = sender?.id != null ? String(sender.id) : "";
+  if (sid && sid === GITHUB_BOT_USER_ID) return true;
+  const uname = String(sender?.username || "").toLowerCase().replace(/^@/, "");
+  if (uname === GITHUB_BOT_USERNAME) return true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyMsg = msg as any;
+  if (anyMsg.senderId != null && String(anyMsg.senderId) === GITHUB_BOT_USER_ID) return true;
+  return false;
+}
 
 class UpdatePlugin extends Plugin {
   description: string =
@@ -334,21 +400,20 @@ class UpdatePlugin extends Plugin {
     const state = loadAutoUpdateState();
     if (!state.enabled) return;
 
-    const chatId = String(msg.chat?.id ?? "");
+    const chatId = normalizeChatId(msg);
     if (chatId !== GITHUB_CHANNEL_ID) return;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((msg.sender as any)?.username !== "GitHubBot") return;
+    if (!isGitHubBot(msg)) return;
 
     const text = msg.text || "";
-    if (!text) return;
+    if (!text || !/new commit/i.test(text)) return;
 
-    if (MAIN_REPO_PATTERN.test(text)) {
-      logger.info("[auto-update] 检测到主仓库提交，开始自动更新…");
-      await autoUpdateMainRepo(msg);
-    } else if (PLUGIN_REPO_PATTERN.test(text)) {
+    if (PLUGIN_REPO_PATTERN.test(text)) {
       logger.info("[auto-update] 检测到插件仓库提交，开始自动更新插件…");
       await autoUpdatePlugins(msg);
+    } else if (MAIN_REPO_PATTERN.test(text)) {
+      logger.info("[auto-update] 检测到主仓库提交，开始自动更新…");
+      await autoUpdateMainRepo(msg);
     }
   };
 }
