@@ -327,7 +327,8 @@ run();
 
 **特殊功能**：
 - 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
-- 包含对 teleproto 运行时的补丁（如 MediaScheduler、Network.onSenderBreak 等）
+- mtcute 版：`telegram.patch.ts` 做 Message 原型扩展等；运行时接入层在 `runtimeManager.ts` + `mtcuteClient.ts`（无 teleproto MediaScheduler 补丁）
+- 共享架构：`runtimeAccess.ts` 打断 `pluginManager` ↔ `runtimeManager` 循环；`asyncHelpers.ts` 提供 `sleep` / `withTimeout` / `safeJsonParse`；插件统一 `import { htmlEscape } from "@utils/htmlEscape"`
 
 ### 目录组织
 
@@ -336,14 +337,18 @@ run();
 ```
 src/
 ├── index.ts              # 程序入口
-├── utils/                # 工具模块 (36个文件)
+├── utils/                # 工具模块
 │   ├── pluginBase.ts
 │   ├── pluginManager.ts
 │   ├── runtimeManager.ts
+│   ├── runtimeAccess.ts  # late-bound runtime API（打断循环依赖）
+│   ├── asyncHelpers.ts   # sleep / withTimeout / safeJsonParse
+│   ├── htmlEscape.ts     # 共享 HTML 转义（系统/运行时插件必用）
 │   ├── generationContext.ts
 │   ├── agent*.ts         # Agent AI 7文件
 │   ├── versionSwitch*.ts # 版本切换 5文件
 │   ├── leech/            # 消息搬运 8文件
+│   ├── mtcuteClient.ts / mtcuteTypes.ts  # mtcute 专属
 │   └── ...
 ├── plugin/               # 系统插件 (19个文件)
 │   ├── help.ts

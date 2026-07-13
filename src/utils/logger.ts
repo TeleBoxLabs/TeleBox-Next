@@ -388,9 +388,13 @@ class Logger {
       msg.includes('HISTORY_GET_FAILED') ||
       msg.includes('difference too long') ||
       msg.includes('channelDifferenceTooLong') ||
+      // ChannelInvalidError: channel no longer accessible; keep retrying is futile
+      // (synced from teleproto 0e8ac85)
+      msg.includes('ChannelInvalidError') ||
       (msg.includes('fetchChannelDifference ') && (
         msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
-        msg.includes('HISTORY_GET_FAILED')
+        msg.includes('HISTORY_GET_FAILED') ||
+        msg.includes('ChannelInvalidError')
       )) ||
       (msg.includes('Could not find a matching Constructor') && msg.includes('recover'))
     );
