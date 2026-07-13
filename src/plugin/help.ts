@@ -5,7 +5,7 @@ import {
 } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
-import { html } from "@mtcute/node";
+import { thtml as html } from "@mtcute/node";
 import type { MessageContext } from "@mtcute/dispatcher";
 import { AliasDB } from "@utils/aliasDB";
 import { logger } from "@utils/logger";
@@ -145,7 +145,7 @@ function formatModuleCommands(
 
   aliasDB.close();
   return {
-    text: `🔧 <b>功能模块:</b><br><blockquote expandable>${lines.join("<br>")}<br></blockquote>`,
+    text: `🔧 <b>功能模块:</b>\n<blockquote expandable>${lines.join("\n")}\n</blockquote>`,
   };
 }
 
@@ -179,7 +179,7 @@ class HelpPlugin extends Plugin {
         const links = `🔗 <a href='https://github.com/TeleBoxOrg/TeleBox-Next'>📦仓库</a> | <a href='https://github.com/TeleBoxOrg/TeleBox-Next_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a> | <a href='https://telegra.ph/TeleBox-插件列表-03-03'>📚插件列表</a>`;
 
         await msg.edit({
-          text: html([header, "", basic.text, "", prefixLine, helpTip, links].join("<br>")),
+          text: html([header, "", basic.text, "", prefixLine, helpTip, links].join("\n")),
           disableWebPreview: true,
         });
 
@@ -189,7 +189,7 @@ class HelpPlugin extends Plugin {
 
         if (modules.text) {
           await msg.replyText(
-            html(modules.text + `<br>💡 使用 <i><code>${mainPrefix}help [模块名]</code></i> 查看具体模块的使用方法`),
+            html(modules.text + `\n💡 使用 <i><code>${mainPrefix}help [模块名]</code></i> 查看具体模块的使用方法`),
             { disableWebPreview: true }
           );
         }
@@ -202,7 +202,7 @@ class HelpPlugin extends Plugin {
 
       if (!pluginEntry?.plugin) {
         await msg.edit({
-          text: html(`❌ 未找到命令 <code>${htmlEscape(command)}</code><br><br>💡 使用 <code>${mainPrefix}help</code> 查看所有命令`),
+          text: html(`❌ 未找到命令 <code>${htmlEscape(command)}</code>\n\n💡 使用 <code>${mainPrefix}help</code> 查看所有命令`),
         });
         return;
       }
@@ -222,11 +222,11 @@ class HelpPlugin extends Plugin {
 
       let description: string;
       if (!plugin.description) description = "暂无描述信息";
-      else if (typeof plugin.description === "string") description = plugin.description.replace(/\\n/g, "<br>").replace(/\n/g, "<br>");
+      else if (typeof plugin.description === "string") description = plugin.description.replace(/\\n/g, "\n").replace(/\n/g, "\n");
       else {
         try {
           const d = await plugin.description({ plugin: pluginEntry });
-          description = typeof d === "string" ? d.replace(/\\n/g, "<br>").replace(/\n/g, "<br>") : "生成描述信息出错";
+          description = typeof d === "string" ? d.replace(/\\n/g, "\n").replace(/\n/g, "\n") : "生成描述信息出错";
         } catch (e: unknown) {
           description = "生成描述信息出错";
         }
@@ -236,8 +236,8 @@ class HelpPlugin extends Plugin {
       if (plugin.cronTasks && Object.keys(plugin.cronTasks).length) {
         const cronTasks = Object.entries(plugin.cronTasks)
           .map(([k, v]) => `• <code><b>${htmlEscape(k)}:</b></code> ${v.description} <code>(${htmlEscape(v.cron)})</code>`)
-          .join("<br>");
-        cronInfo = `<br>📅 <b>定时任务:</b><br>${cronTasks}<br>`;
+          .join("\n");
+        cronInfo = `\n📅 <b>定时任务:</b>\n${cronTasks}\n`;
       }
 
       await msg.edit({
@@ -254,7 +254,7 @@ class HelpPlugin extends Plugin {
           `<code>${mainPrefix}${command} [参数]</code>`,
           cronInfo,
           `💡 <i>提示: 使用</i> <code>${mainPrefix}help</code> <i>查看所有命令</i>`,
-        ].join("<br>")),
+        ].join("\n")),
         disableWebPreview: true,
       });
     } catch (e: unknown) {
@@ -275,7 +275,7 @@ class HelpPlugin extends Plugin {
           "• 查看控制台获取详细日志",
           "",
           "🆘 <a href='https://github.com/TeleBoxOrg/TeleBox-Next/issues'>反馈问题</a>",
-        ].join("<br>")),
+        ].join("\n")),
       });
     }
   }

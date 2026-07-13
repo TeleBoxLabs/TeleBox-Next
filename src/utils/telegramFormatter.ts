@@ -6,7 +6,7 @@ import { logger } from "./logger";
 export class TelegramFormatter {
   /**
    * 将 Markdown 转换为 Telegram 支持的 HTML（尽量接近 CommonMark，块级语义支持到 3 级）
-   * 约束：Telegram HTML 不支持 <br> / <p> / <ul> / <li> 等标签，只能用 \n 换行。
+   * 约束：Telegram HTML 不支持 \n / <p> / <ul> / <li> 等标签，只能用 \n 换行。
    */
   static markdownToHtml(md: string, options?: { collapseSafe?: boolean }): string {
     const collapseSafe = !!options?.collapseSafe;
@@ -159,7 +159,7 @@ export class TelegramFormatter {
 
     flushParagraph(paraBuf);
 
-    // Telegram 不支持 <br>，这里用双换行分隔块；块内部保留 \n
+    // Telegram 不支持 \n，这里用双换行分隔块；块内部保留 \n
     return blocks.join("\n\n");
   }
 

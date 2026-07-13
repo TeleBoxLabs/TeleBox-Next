@@ -1,4 +1,4 @@
-import { html } from "@mtcute/node";
+import { thtml as html } from "@mtcute/node";
 import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient, tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import { getPrefixes } from "@utils/pluginManager";

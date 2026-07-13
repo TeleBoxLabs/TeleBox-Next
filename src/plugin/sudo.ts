@@ -2,7 +2,7 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { SudoDB } from "@utils/sudoDB";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
-import { html } from "@mtcute/html-parser";
+import { thtml as html } from "@mtcute/html-parser";
 import { htmlEscape } from "@utils/htmlEscape";
 import { logger } from "@utils/logger";
 import { sleep } from "@utils/asyncHelpers";
@@ -141,8 +141,8 @@ async function handleList(msg: MessageContext) {
     return;
   }
   await msg.edit({
-    text: html`当前用户列表：<br><br>
-${users.map((u) => "- " + u.username).join("<br>")}`,
+    text: html`当前用户列表：\n\n
+${users.map((u) => "- " + u.username).join("\n")}`,
   });
 }
 async function handleChatAddDel(
@@ -200,8 +200,8 @@ async function handleChatList(msg: MessageContext) {
     return;
   }
   await msg.edit({
-    text: html`对话白名单列表：<br><br>
-${chats.map((c) => "- " + c.name).join("<br>")}`,
+    text: html`对话白名单列表：\n\n
+${chats.map((c) => "- " + c.name).join("\n")}`,
   });
 }
 class sudoPlugin extends Plugin {
@@ -213,9 +213,9 @@ class sudoPlugin extends Plugin {
   }
 
   description: () => string = () => {
-    let text = `赋予其他用户使用 bot 权限<br><code>${mainPrefix}sudo add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户<br><code>${mainPrefix}sudo del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户<br><code>${mainPrefix}sudo ls</code> - 列出所有用户<br><br>⚠️ 若未设置对话白名单, 所有对话中均可使用<br><code>${mainPrefix}sudo chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单<br><code>${mainPrefix}sudo chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话<br><code>${mainPrefix}sudo chat ls/list</code> - 列出对话白名单`;
+    let text = `赋予其他用户使用 bot 权限\n<code>${mainPrefix}sudo add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户\n<code>${mainPrefix}sudo del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户\n<code>${mainPrefix}sudo ls</code> - 列出所有用户\n\n⚠️ 若未设置对话白名单, 所有对话中均可使用\n<code>${mainPrefix}sudo chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单\n<code>${mainPrefix}sudo chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话\n<code>${mainPrefix}sudo chat ls/list</code> - 列出对话白名单`;
     if (envPrefixes.length > 0) {
-      text += `<br><br>‼️当前 sudo 前缀：${envPrefixes
+      text += `\n\n‼️当前 sudo 前缀：${envPrefixes
         .map((p) => `<code>${p}</code>`)
         .join(" ")}`;
     }

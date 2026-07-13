@@ -1767,7 +1767,7 @@ import { htmlEscape } from "@utils/htmlEscape";
 // 用户输入 / 动态文本插入 HTML 消息前一律转义
 await msg.edit({
   text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}`,
-  parseMode: "html",
+  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */,
 });
 ```
 
@@ -1809,7 +1809,7 @@ const handleError = async (msg: Api.Message, error: any) => {
   const errorMsg = error.message || "未知错误";
   await msg.edit({
     text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}`,
-    parseMode: "html"
+    /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
   });
 };
 
@@ -1855,7 +1855,7 @@ function splitMessage(text: string, maxLength = 4096): string[] {
 
 ```typescript
 // 消息操作
-await msg.edit({ text: "...", parseMode: "html" });
+await msg.edit({ text: "...", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
 await msg.reply({ message: "..." });
 await msg.delete({ revoke: true });
 
@@ -1871,7 +1871,7 @@ import { getGlobalClient } from "@utils/runtimeManager";
 const client = await getGlobalClient();
 
 // 发送消息
-await client.sendMessage(peer, { message: "...", parseMode: "html" });
+await client.sendMessage(peer, { message: "...", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
 
 // 获取实体
 const entity = await client.getEntity(peer);
@@ -1983,28 +1983,28 @@ class StandardPlugin extends Plugin {
   private async handleDefault(msg: Api.Message, sub: string | undefined) {
     if (!sub || sub === "help" || sub === "h") {
       // 无参数时的默认行为
-      await msg.edit({ text: this.HELP, parseMode: "html" });
+      await msg.edit({ text: this.HELP, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
     } else {
       // 未知命令
       const prefix = mainPrefix;
       await msg.edit({
         text: `❌ 未知命令: <code>${htmlEscape(sub)}</code>\n\n💡 使用 <code>${prefix}mp help</code> 查看帮助`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     }
   }
   
   // 具体功能实现（用户自定义）
   private async handleStart(msg: Api.Message) {
-    await msg.edit({ text: "✅ 已启动", parseMode: "html" });
+    await msg.edit({ text: "✅ 已启动", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
   }
   
   private async handleStop(msg: Api.Message) {
-    await msg.edit({ text: "⏹️ 已停止", parseMode: "html" });
+    await msg.edit({ text: "⏹️ 已停止", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
   }
   
   private async handleStatus(msg: Api.Message) {
-    await msg.edit({ text: "📊 运行中", parseMode: "html" });
+    await msg.edit({ text: "📊 运行中", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
   }
 }
 
@@ -2108,7 +2108,7 @@ class ProgressManager {
     const elapsed = formatDuration(Date.now() - this.startTime);
     await this.msg.edit({
       text: `${emoji} ${text}\n⏱️ 已用时: ${elapsed}`,
-      parseMode: "html"
+      /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
     });
   }
   
@@ -2116,7 +2116,7 @@ class ProgressManager {
     const elapsed = formatDuration(Date.now() - this.startTime);
     await this.msg.edit({
       text: `✅ ${text}\n⏱️ 总用时: ${elapsed}`,
-      parseMode: "html"
+      /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
     });
   }
   
@@ -2177,7 +2177,7 @@ class ErrorHandler {
       errorMsg = `❌ <b>操作失败:</b> ${htmlEscape(error.message || "未知错误")}`;
     }
     
-    await msg.edit({ text: errorMsg, parseMode: "html" });
+    await msg.edit({ text: errorMsg, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
   }
 }
 
@@ -2204,7 +2204,7 @@ class MessageFormatter {
     return await client.sendFile(peer, {
       file,
       caption,
-      parseMode: 'html'  // 必需！确保HTML格式正确解析
+      /* mtcute: use thtml as html(...) */  // 必需！确保HTML格式正确解析
     });
   }
   
@@ -2320,7 +2320,7 @@ class MyPlugin extends Plugin {
   cmdHandlers = {
     mycommand: async (msg: Api.Message) => {
       const text = `<b>Hello from MyPlugin!</b>`;
-      await msg.edit({ text, parseMode: "html" });
+      await msg.edit({ text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
     }
   };
 }
@@ -2348,13 +2348,13 @@ const client = await getGlobalClient();
 // 发送消息
 await client.sendMessage(chatId, { 
   message: "Hello",
-  parseMode: "html" 
+  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
 });
 
 // 编辑消息
 await msg.edit({ 
   text: "<b>Updated</b>", 
-  parseMode: "html" 
+  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
 });
 
 // 删除消息
@@ -2780,14 +2780,14 @@ class SimplePlugin extends Plugin {
       const latency = Date.now() - start;
       await msg.edit({ 
         text: `Pong! 🏓\n响应时间: ${latency}ms`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     },
     echo: async (msg: Api.Message) => {
       const text = msg.text?.replace(/^[.!。]echo\s*/i, "") || "无内容";
       await msg.edit({
         text: `🗣️ <b>回声:</b>\n<code>${text}</code>`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     }
   };
@@ -2860,7 +2860,7 @@ class DataPlugin extends Plugin {
         text += `${i + 1}. <code>${r.content}</code>\n   <i>${date}</i>\n\n`;
       });
       
-      await msg.edit({ text, parseMode: "html" });
+      await msg.edit({ text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
     }
   };
 }
@@ -2926,7 +2926,7 @@ class MonitorPlugin extends Plugin {
               `📨 总消息数: <code>${data.totalMessages}</code>\n` +
               `👥 活跃用户: <code>${userCount}</code>\n` +
               `🔍 Help请求: <code>${data.keywords.help || 0}</code>`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     }
   };
@@ -2970,7 +2970,7 @@ class SchedulePlugin extends Plugin {
       if (parts.length < 3) {
         await msg.edit({
           text: "❌ 用法: <code>.remind [分钟] [提醒内容]</code>",
-          parseMode: "html"
+          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
         });
         return;
       }
@@ -2988,7 +2988,7 @@ class SchedulePlugin extends Plugin {
         const client = await getGlobalClient();
         await client.sendMessage(msg.peerId, {
           message: `⏰ <b>提醒:</b> ${reminder}`,
-          parseMode: "html",
+          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */,
           replyTo: msg.id
         });
         this.reminders.delete(reminderId);
@@ -2998,7 +2998,7 @@ class SchedulePlugin extends Plugin {
       
       await msg.edit({
         text: `✅ 已设置提醒，将在 ${minutes} 分钟后提醒您`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     },
     
@@ -3010,7 +3010,7 @@ class SchedulePlugin extends Plugin {
       
       await msg.edit({
         text: `📝 活动提醒数量: ${this.reminders.size}`,
-        parseMode: "html"
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
       });
     }
   };
@@ -3051,7 +3051,7 @@ class QuickPlugin extends Plugin {
   description = "快速插件";
   cmdHandlers = {
     cmd: async (msg: Api.Message) => {
-      await msg.edit({ text: "处理完成", parseMode: "html" });
+      await msg.edit({ text: "处理完成", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
     }
   };
 }
@@ -3077,7 +3077,7 @@ try {
 } catch (error) {
   await msg.edit({ 
     text: `❌ 错误: ${error.message}`,
-    parseMode: "html" 
+    /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
   });
 }
 
@@ -3178,7 +3178,7 @@ class SSHPlugin extends Plugin {
           await this.executeCommand(msg);
           break;
         default:
-          await msg.edit({ text: help_text, parseMode: "html" });
+          await msg.edit({ text: help_text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
       }
     }
   }
@@ -3290,7 +3290,7 @@ class MyPlugin extends Plugin {
     cmd: async (msg) => {
       const sub = msg.text?.split(/\s+/)[1];
       if (!sub || sub === 'help' || sub === 'h') {
-        await msg.edit({ text: help_text, parseMode: "html" });
+        await msg.edit({ text: help_text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
         return;
       }
       // 处理其他子命令...
@@ -3328,7 +3328,7 @@ cmdHandlers = {
       if (!args.length) {
         await msg.edit({ 
           text: "❌ 请提供必要参数", 
-          parseMode: "html" 
+          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
         });
         return;
       }
@@ -3340,7 +3340,7 @@ cmdHandlers = {
       console.error(`[${PLUGIN_NAME}] 错误:`, error);
       await msg.edit({ 
         text: `❌ 错误: ${htmlEscape(error.message)}`,
-        parseMode: "html" 
+        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
       });
     }
   }

@@ -1,6 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
-import { html } from "@mtcute/node";
+import { thtml as html } from "@mtcute/node";
 import type { MessageContext } from "@mtcute/dispatcher";
 import { logger, LogLevel } from "@utils/logger";
 
@@ -68,7 +68,7 @@ class LogLevelPlugin extends Plugin {
         break;
       default:
         await msg.edit({
-          text: html("❌ <b>无效的日志等级</b><br><br>" +
+          text: html("❌ <b>无效的日志等级</b>\n\n" +
                 "💡 可用等级：<code>debug</code>, <code>info</code>, <code>warning</code>, <code>error</code>, <code>silent</code>"),
         });
         return;
@@ -90,7 +90,7 @@ class LogLevelPlugin extends Plugin {
     }
 
     await msg.edit({
-      text: html(`✅ <b>日志等级已设置为：</b> <code>${logger.getLevelName(newLevel)}</code><br>` +
+      text: html(`✅ <b>日志等级已设置为：</b> <code>${logger.getLevelName(newLevel)}</code>\n` +
             `🔄 客户端日志等级已同步更新`),
     });
   }

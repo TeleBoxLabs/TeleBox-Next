@@ -2,7 +2,7 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import type { MessageContext } from "@mtcute/dispatcher";
 import type { MtcuteFileDownloadLocation, MtcuteMessageContext } from "@utils/mtcuteTypes";
-import { html } from "@mtcute/html-parser";
+import { thtml as html } from "@mtcute/html-parser";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { createDirectoryInAssets, createDirectoryInTemp } from "@utils/pathHelpers";
 import { JSONFilePreset } from "lowdb/node";
@@ -330,15 +330,15 @@ class SavePlugin extends Plugin {
 
       if (startSource) {
         const startTitle = await this.getChatDisplayName(startSource.chatId);
-        blocks.push(`▶️ <b>起始消息</b><br>${this.formatSourceLine(startTitle, startSource.chatId, startSource.messageId)}`);
+        blocks.push(`▶️ <b>起始消息</b>\n${this.formatSourceLine(startTitle, startSource.chatId, startSource.messageId)}`);
       }
 
       if (endSource) {
         const endTitle = await this.getChatDisplayName(endSource.chatId);
-        blocks.push(`⏹ <b>结尾消息</b><br>${this.formatSourceLine(endTitle, endSource.chatId, endSource.messageId)}`);
+        blocks.push(`⏹ <b>结尾消息</b>\n${this.formatSourceLine(endTitle, endSource.chatId, endSource.messageId)}`);
       }
 
-      await client.sendText(targetPeer, `🔗 <b>范围保存来源</b><br><br>${blocks.join('<br><br>')}`, { replyTo: forwardedMsg.id });
+      await client.sendText(targetPeer, `🔗 <b>范围保存来源</b>\n\n${blocks.join('\n\n')}`, { replyTo: forwardedMsg.id });
     } catch (error: unknown) {
       logger.error(`发送范围来源消息失败:`, error);
     }
