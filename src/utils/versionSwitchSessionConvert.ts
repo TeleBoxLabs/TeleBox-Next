@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env node
 /**
  * Session conversion for version switch (teleproto ↔ mtcute).
  *
@@ -8,8 +8,8 @@
  * Always run from the mtcute repo (needs @mtcute/* + @mtcute/convert).
  *
  * Usage:
- *   SWITCH_SOURCE=teleproto SWITCH_TARGET=mtcute npx tsx src/utils/versionSwitchSessionConvert.ts
- *   SWITCH_SOURCE=mtcute SWITCH_TARGET=teleproto npx tsx src/utils/versionSwitchSessionConvert.ts
+ *   SWITCH_SOURCE=teleproto SWITCH_TARGET=mtcute node scripts/run-tsx.cjs src/utils/versionSwitchSessionConvert.ts
+ *   SWITCH_SOURCE=mtcute SWITCH_TARGET=teleproto node scripts/run-tsx.cjs src/utils/versionSwitchSessionConvert.ts
  *
  * Env:
  *   SWITCH_SOURCE / SWITCH_TARGET — required
@@ -26,11 +26,10 @@ import {
   DEFAULT_SWITCH_HOME,
 } from "./versionSwitchState";
 import type { TeleBoxVersion } from "./versionSwitchState";
+import { resolveRepoRoots } from "./versionSwitchPaths";
 
-const REPO_ROOTS: Record<TeleBoxVersion, string> = {
-  teleproto: "/root/telebox",
-  mtcute: "/root/telebox_mtcute",
-};
+// Prefer env TELEBOX_TELEPROTO_ROOT / TELEBOX_MTCUTE_ROOT; else sibling dirs of cwd.
+const REPO_ROOTS: Record<TeleBoxVersion, string> = resolveRepoRoots();
 
 function readJson(file: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
