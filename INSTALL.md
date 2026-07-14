@@ -192,8 +192,8 @@ npm install -g pm2
 **🚀 启动 TeleBox-Next 服务：**
 
 ```bash
-# 使用 PM2 启动服务
-pm2 start "npm start" --name telebox
+# 使用 PM2 启动服务（进程名 telebox-next，与 Classic 的 telebox 区分）
+pm2 start "npm start" --name telebox-next
 
 # 保存 PM2 配置
 pm2 save
@@ -209,16 +209,16 @@ pm2 startup systemd
 pm2 status
 
 # 查看运行日志
-pm2 logs telebox
+pm2 logs telebox-next
 
 # 🔄 重启服务
-pm2 restart telebox
+pm2 restart telebox-next
 
 # 🛑 停止服务
-pm2 stop telebox
+pm2 stop telebox-next
 
 # 🗑️ 删除进程
-pm2 delete telebox
+pm2 delete telebox-next
 ```
 
 **🧰 可选增强功能：**
@@ -231,7 +231,7 @@ pm2 install pm2-logrotate
 pm2 monit
 
 # 🔄 无缝重载（零停机时间）
-pm2 reload telebox
+pm2 reload telebox-next
 
 # 📋 查看所有进程
 pm2 list
@@ -307,14 +307,14 @@ pm2 list
 <summary><b>❓ 运行问题</b></summary>
 
 **问题：PM2 启动后立即退出**
-- 查看错误日志：`pm2 logs telebox --err`
+- 查看错误日志：`pm2 logs telebox-next --err`
 - 确认首次启动配置（步骤 5）已完成
 - 检查 `config.json` 和 `.env` 文件是否存在
 
 **问题：命令无响应**
 - 确认使用了正确的命令前缀（默认为 `.` 或 `。`）
 - 检查 PM2 进程状态：`pm2 status`
-- 查看实时日志：`pm2 logs telebox`
+- 查看实时日志：`pm2 logs telebox-next`
 
 **问题：权限不足**
 - 某些命令需要 sudo 权限，使用 `.sudo add <user_id>` 添加管理员

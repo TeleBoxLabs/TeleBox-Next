@@ -7,9 +7,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Version](https://img.shields.io/badge/Version-0.2.8-orange.svg?style=for-the-badge)](CHANGELOG.md)
 
-**TeleBox-Next — 基于 mtcute 的下一代 Telegram UserBot 框架**
+**TeleBox-Next — 下一代 Telegram UserBot 开发框架**
 
-_基于 Node.js 和 TypeScript 构建，提供强大的插件系统与丰富的功能模块_
+_基于 Node.js 和 TypeScript 构建，原生异步架构，提供强大的插件系统与丰富的功能模块_
 
 [📖 快速开始](#-快速开始) • [🔌 插件生态](#-插件生态) • [🛠️ 开发指南](https://github.com/TeleBoxOrg/TeleBox-Next/blob/main/TELEBOX_DEVELOPMENT.md) • [📚 文档](#-相关链接)
 
@@ -94,7 +94,7 @@ sudo 权限分配和用户管理
 │   │   ├── 👑 sudo.ts         # 权限管理
 │   │   ├── 💻 exec.ts         # Shell 执行
 │   │   ├── 🏓 ping.ts         # 网络测试
-│   │   ├── 📊 sysinfo.ts      # 系统信息
+│   │   ├── 📊 status.ts       # 运行状态
 │   │   └── 🔧 ...             # 其他内置插件
 │   └── 🛠️ utils/              # 工具库
 │       ├── ⚙️ pluginManager.ts     # 插件管理核心
@@ -133,11 +133,11 @@ abstract class Plugin {
   // ⚡ 必需属性 - 命令处理器映射表
   abstract cmdHandlers: Record<
     string,
-    (msg: Api.Message, trigger?: Api.Message) => Promise<void>
+    (msg: MessageContext, trigger?: MessageContext) => Promise<void>
   >;
   
   // 👂 可选属性 - 消息监听器
-  listenMessageHandler?: (msg: Api.Message) => Promise<void>;
+  listenMessageHandler?: (msg: MessageContext) => Promise<void>;
   
   // 🎯 可选属性 - 事件处理器
   eventHandlers?: Array<{
@@ -241,11 +241,6 @@ abstract class Plugin {
 <td>🌐 网络延迟测试工具</td>
 </tr>
 <tr>
-<td><strong>📊 sysinfo</strong></td>
-<td><code>sysinfo</code></td>
-<td>📈 系统信息监控</td>
-</tr>
-<tr>
 <td><strong>🏷️ alias</strong></td>
 <td><code>alias</code></td>
 <td>🔄 命令别名管理</td>
@@ -279,6 +274,52 @@ abstract class Plugin {
 <td><strong>✅ sure</strong></td>
 <td><code>sure</code></td>
 <td>🤔 确认操作工具</td>
+</tr>
+
+<tr>
+<td><strong>🔀 switch</strong></td>
+<td><code>switch</code></td>
+<td>🔁 Classic / Next 版本切换</td>
+</tr>
+<tr>
+<td><strong>🔧 autofix</strong></td>
+<td><code>autofix</code></td>
+<td>🛠️ 一键修复：清理重名插件、硬同步代码、重启并更新插件</td>
+</tr>
+<tr>
+<td><strong>💾 save</strong></td>
+<td><code>save</code></td>
+<td>📌 会话/配置保存相关工具</td>
+</tr>
+<tr>
+<td><strong>📥 leech</strong></td>
+<td><code>leech</code></td>
+<td>📚 历史消息抓取与归档</td>
+</tr>
+<tr>
+<td><strong>🤖 agent</strong></td>
+<td><code>agent</code></td>
+<td>🧠 内置 Agent 能力</td>
+</tr>
+<tr>
+<td><strong>🏷️ version</strong></td>
+<td><code>version</code></td>
+<td>📋 版本信息</td>
+</tr>
+<tr>
+<td><strong>🔤 prefix</strong></td>
+<td><code>prefix</code></td>
+<td>✏️ 命令前缀管理</td>
+</tr>
+<tr>
+<td><strong>📊 status</strong></td>
+<td><code>status</code></td>
+<td>📡 运行状态与 generation 信息</td>
+</tr>
+<tr>
+<td><strong>🪵 loglevel</strong></td>
+<td><code>loglevel</code></td>
+<td>🎚️ 日志级别管理</td>
 </tr>
 </tbody>
 </table>
@@ -317,11 +358,11 @@ abstract class Plugin {
 | :----------------: | :------------------: | :---------: |
 |   🚀 **运行时**    |       Node.js        |    `24.x`    |
 |  💎 **开发语言**   |      TypeScript      |   `^5.9.2`   |
-| 📡 **Telegram 库** |       mtcute        |  `^0.29.7` |
-|   💾 **数据库**    |    better-sqlite3    |  `^12.2.0`   |
+| 📡 **Telegram 库** |       mtcute        |  `^0.30.1` |
+|   💾 **数据库**    |    better-sqlite3    |  `^12.11.1`  |
 |   💾 **数据库**    |        lowdb         |   `^7.0.1`   |
-|  ⚡ **构建工具**   | tsx + tsconfig-paths |  `^4.20.4`   |
-| 🌐 **HTTP 客户端** |        axios         |  `^1.11.0`   |
+|  ⚡ **构建工具**   | tsx + tsconfig-paths |  `^4.22.4`   |
+| 🌐 **HTTP 客户端** |        axios         |  `^1.18.1`   |
 |  🖼️ **图像处理**   |        sharp         |  `^0.34.3`   |
 |   🧰 **工具库**    |        lodash        |  `^4.17.21`  |
 |  ⏰ **任务调度**   |         cron         |   `^4.3.3`   |
@@ -388,7 +429,7 @@ npm run dev
 <tr>
 <td align="center" width="20%">
 
-[![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox-Next-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next)
+[![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox--Next-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next)
 
 [![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox--Next--Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next-Plugins)
 

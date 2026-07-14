@@ -271,7 +271,7 @@ run();
 | `sendLogDB.ts` | 发送日志数据库 |
 | `banUtils.ts` | 封禁管理工具 |
 | `cronManager.ts` | 定时任务管理器 |
-| `conversation.ts` | 对话管理器（仅 teleproto，mtcute 无此文件） |
+| `conversation.ts` | 对话管理器（仅 Classic 版；Next 使用原生对话 API） |
 | `tlRevive.ts` | Telegram实体序列化工具 |
 | `npm_install.ts` | NPM包安装工具 |
 | `teleboxInfoHelper.ts` | 系统信息助手 |
@@ -316,7 +316,7 @@ run();
 | `status.ts` | 系统状态（PM2、版本、内存、generation） |
 | `sudo.ts` | 权限管理 |
 | `sure.ts` | 确认操作 |
-| `switch.ts` | 版本切换（teleproto ↔ mtcute） |
+| `switch.ts` | 版本切换（Classic ↔ Next） |
 | `tpm.ts` | 插件包管理器 |
 | `update.ts` | 更新管理（含自动更新功能） |
 
@@ -327,7 +327,7 @@ run();
 
 **特殊功能**：
 - 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
-- mtcute 版：`telegram.patch.ts` 做 Message 原型扩展等；运行时接入层在 `runtimeManager.ts` + `mtcuteClient.ts`（无 teleproto MediaScheduler 补丁）
+- 本版：`telegram.patch.ts` 做 Message 原型扩展等；运行时接入层在 `runtimeManager.ts` + `mtcuteClient.ts`
 - 共享架构：`runtimeAccess.ts` 打断 `pluginManager` ↔ `runtimeManager` 循环；`asyncHelpers.ts` 提供 `sleep` / `withTimeout` / `safeJsonParse`；插件统一 `import { htmlEscape } from "@utils/htmlEscape"`
 
 ### 目录组织
@@ -419,7 +419,7 @@ utils/* (工具模块)
   ├── runtimeManager → Telegram客户端 + getGlobalClient()
   ├── *DB.ts → 数据库操作 (aliasDB, sudoDB, sureDB, sendLogDB)
   ├── cronManager → 定时任务
-  ├── conversation → 对话管理（仅 teleproto）
+  ├── conversation → 对话管理（仅 Classic）
   ├── agent*.ts → AI Agent 6模块 + barrel
   ├── versionSwitch*.ts → 版本切换 5模块
   └── leech/ → 消息搬运 8模块
@@ -430,9 +430,9 @@ utils/* (工具模块)
 - **当前版本**: 0.2.8
 - **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
-- **Telegram 库版本**: @mtcute/node ^0.30.1（原生 mtcute API，不依赖 teleproto）
+- **Telegram 库版本**: @mtcute/node ^0.30.1
 - **协议**: LGPL-2.1-only
-- **仓库**: TeleBoxOrg/TeleBox-Next（mtcute 版本）
+- **仓库**: TeleBoxOrg/TeleBox-Next
 
 ## 🔌 插件系统
 
@@ -518,12 +518,12 @@ abstract class Plugin {
   
   abstract cmdHandlers: Record<
     string,
-    (msg: Api.Message, trigger?: Api.Message) => Promise<void>
+    (msg: MessageContext, trigger?: MessageContext) => Promise<void>
   >;
   
   listenMessageHandlerIgnoreEdited?: boolean = true;  // 默认忽略编辑消息
   listenMessageHandler?: (
-    msg: Api.Message,
+    msg: MessageContext,
     options?: { isEdited?: boolean }
   ) => Promise<void>;
   
@@ -626,9 +626,9 @@ await setPlugins(DEFAUTL_PLUGIN_PATH);
 **示例**：
 ```typescript
 cmdHandlers = {
-  help: async (msg: Api.Message) => {
+  help: async (msg: MessageContext) => {
     // 只在用户输入 .help 时触发
-    await msg.reply({ message: "帮助信息" });
+    await msg.replyText("帮助信息");
   }
 };
 ```
@@ -642,7 +642,7 @@ cmdHandlers = {
 
 **示例**：
 ```typescript
-listenMessageHandler = async (msg: Api.Message, options?: { isEdited?: boolean }) => {
+listenMessageHandler = async (msg: MessageContext, options?: { isEdited?: boolean }) => {
   // 监听所有消息，必须有明确过滤条件
   if (msg.photo) {
     // 只处理图片消息
@@ -665,9 +665,9 @@ listenMessageHandler = async (msg: Api.Message, options?: { isEdited?: boolean }
 ```typescript
 eventHandlers = [
   {
-    event: new NewMessage({}),
-    handler: async (event) => {
-      // 处理新消息事件
+    kind: "newMessage",  // "newMessage" | "editMessage" | "rawUpdate"
+    handler: async (ctx) => {
+      // 处理新消息事件（ctx 为 dispatcher 上下文）
     }
   }
 ];
@@ -733,7 +733,7 @@ import { getGlobalClient } from "@utils/runtimeManager";
 
 const client = await getGlobalClient();
 // 使用client进行API调用
-await client.sendMessage(peer, { message: "Hello" });
+await client.sendText(peer, "Hello");
 ```
 
 **作用**：维护全局唯一的Telegram客户端实例，避免重复连接。同时提供 `startRuntime()` / `shutdownRuntime()` 管理完整生命周期。
@@ -945,26 +945,27 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TeleBoxOrg/TeleBox.git"
+    "url": "git+https://github.com/TeleBoxOrg/TeleBox-Next.git"
   },
   "license": "LGPL-2.1-only",
   "dependencies": {
-    "teleproto": "^1.227.5",
+    "@mtcute/node": "^0.30.1",
+    "@mtcute/dispatcher": "^0.30.1",
     "dotenv": "^17.2.2",
     "cron": "^4.3.3",
-    "axios": "^1.11.0",
+    "axios": "^1.18.1",
     "sharp": "^0.34.3",
     "lowdb": "^7.0.1",
     "lodash": "^4.17.21",
-    "dayjs": "^1.11.18",
+    "dayjs": "^1.11.21",
     "cheerio": "^1.2.0",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^12.11.1",
     "opencc-js": "^1.0.5",
     "modern-gif": "^2.0.4",
     "archiver": "^7.0.1",
     "ssh2": "^1.15.0",
     "@vitalets/google-translate-api": "^9.2.1"
-    // 完整依赖列表见package.json
+    // 完整依赖列表见 package.json
   }
 }
 ```
@@ -1766,9 +1767,7 @@ import { htmlEscape } from "@utils/htmlEscape";
 
 // 用户输入 / 动态文本插入 HTML 消息前一律转义
 await msg.edit({
-  text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}`,
-  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */,
-});
+  text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}` });
 ```
 
 - 实现位置：`src/utils/htmlEscape.ts`
@@ -1781,7 +1780,7 @@ await msg.edit({
 
 ```typescript
 import { getPrefixes } from "@utils/pluginManager";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 
 // HTML转义（必需）
 import { htmlEscape } from "@utils/htmlEscape"; // 共享实现，见 src/utils/htmlEscape.ts
@@ -1791,31 +1790,29 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 // 参数解析
-const parseArgs = (msg: Api.Message) => {
+const parseArgs = (msg: MessageContext) => {
   const text = msg.text || "";
   const parts = text.trim().split(/\s+/);
   return parts.slice(1); // 跳过命令本身
 };
 
 // 提取剩余文本
-const getRemark = (msg: Api.Message, skipWords: number = 1): string => {
+const getRemark = (msg: MessageContext, skipWords: number = 1): string => {
   const text = msg.text || "";
   const parts = text.trim().split(/\s+/);
   return parts.slice(skipWords).join(" ");
 };
 
 // 错误处理
-const handleError = async (msg: Api.Message, error: any) => {
+const handleError = async (msg: MessageContext, error: any) => {
   const errorMsg = error.message || "未知错误";
   await msg.edit({
-    text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}`,
-    /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-  });
+    text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}` });
 };
 
 // 自动删除消息
-const autoDelete = (msg: Api.Message, seconds: number = 5) => {
-  setTimeout(() => msg.delete({ revoke: true }).catch(() => {}), seconds * 1000);
+const autoDelete = (msg: MessageContext, seconds: number = 5) => {
+  setTimeout(() => msg.delete().catch(() => {}), seconds * 1000);
 };
 ```
 
@@ -1855,12 +1852,12 @@ function splitMessage(text: string, maxLength = 4096): string[] {
 
 ```typescript
 // 消息操作
-await msg.edit({ text: "...", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
-await msg.reply({ message: "..." });
-await msg.delete({ revoke: true });
+await msg.edit({ text: "..." });
+await msg.replyText("...");
+await msg.delete();
 
 // 获取回复消息
-const replyMsg = await msg.getReplyMessage();
+const replyMsg = msg.replyToMessage;
 ```
 
 ### Client API
@@ -1871,10 +1868,10 @@ import { getGlobalClient } from "@utils/runtimeManager";
 const client = await getGlobalClient();
 
 // 发送消息
-await client.sendMessage(peer, { message: "...", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+await client.sendText(peer, "...");
 
 // 获取实体
-const entity = await client.getEntity(peer);
+const chat = await client.getChat(peer);
 
 // 发送文件
 await client.sendFile(peer, { file: "path/to/file" });
@@ -1921,7 +1918,7 @@ const HELP = `⚙️ <b>示例插件</b>
 // ========== 插件基础框架 ==========
 
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { getPrefixes } from "@utils/pluginManager";
 
@@ -1952,7 +1949,7 @@ class StandardPlugin extends Plugin {
   };
   
   // 主命令处理
-  private async handleCommand(msg: Api.Message): Promise<void> {
+  private async handleCommand(msg: MessageContext): Promise<void> {
     const client = await getGlobalClient();
     if (!client) return;
     
@@ -1980,31 +1977,29 @@ class StandardPlugin extends Plugin {
   }
   
   // 默认处理
-  private async handleDefault(msg: Api.Message, sub: string | undefined) {
+  private async handleDefault(msg: MessageContext, sub: string | undefined) {
     if (!sub || sub === "help" || sub === "h") {
       // 无参数时的默认行为
-      await msg.edit({ text: this.HELP, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+      await msg.edit({ text: this.HELP });
     } else {
       // 未知命令
       const prefix = mainPrefix;
       await msg.edit({
-        text: `❌ 未知命令: <code>${htmlEscape(sub)}</code>\n\n💡 使用 <code>${prefix}mp help</code> 查看帮助`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+        text: `❌ 未知命令: <code>${htmlEscape(sub)}</code>\n\n💡 使用 <code>${prefix}mp help</code> 查看帮助` });
     }
   }
   
   // 具体功能实现（用户自定义）
-  private async handleStart(msg: Api.Message) {
-    await msg.edit({ text: "✅ 已启动", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+  private async handleStart(msg: MessageContext) {
+    await msg.edit({ text: "✅ 已启动" });
   }
   
-  private async handleStop(msg: Api.Message) {
-    await msg.edit({ text: "⏹️ 已停止", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+  private async handleStop(msg: MessageContext) {
+    await msg.edit({ text: "⏹️ 已停止" });
   }
   
-  private async handleStatus(msg: Api.Message) {
-    await msg.edit({ text: "📊 运行中", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+  private async handleStatus(msg: MessageContext) {
+    await msg.edit({ text: "📊 运行中" });
   }
 }
 
@@ -2096,10 +2091,10 @@ await config.update({ enabled: false, maxRetries: 5 });
 // ========== 渐进式状态反馈 ==========
 
 class ProgressManager {
-  private msg: Api.Message;
+  private msg: MessageContext;
   private startTime: number;
   
-  constructor(msg: Api.Message) {
+  constructor(msg: MessageContext) {
     this.msg = msg;
     this.startTime = Date.now();
   }
@@ -2107,17 +2102,13 @@ class ProgressManager {
   async update(text: string, emoji: string = "🔄"): Promise<void> {
     const elapsed = formatDuration(Date.now() - this.startTime);
     await this.msg.edit({
-      text: `${emoji} ${text}\n⏱️ 已用时: ${elapsed}`,
-      /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-    });
+      text: `${emoji} ${text}\n⏱️ 已用时: ${elapsed}` });
   }
   
   async success(text: string): Promise<void> {
     const elapsed = formatDuration(Date.now() - this.startTime);
     await this.msg.edit({
-      text: `✅ ${text}\n⏱️ 总用时: ${elapsed}`,
-      /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-    });
+      text: `✅ ${text}\n⏱️ 总用时: ${elapsed}` });
   }
   
   async error(error: any): Promise<void> {
@@ -2161,7 +2152,7 @@ class PluginError extends Error {
 
 // 错误处理器
 class ErrorHandler {
-  static async handle(msg: Api.Message, error: any): Promise<void> {
+  static async handle(msg: MessageContext, error: any): Promise<void> {
     console.error(`[Plugin Error]:`, error);
     
     let errorMsg: string;
@@ -2177,7 +2168,7 @@ class ErrorHandler {
       errorMsg = `❌ <b>操作失败:</b> ${htmlEscape(error.message || "未知错误")}`;
     }
     
-    await msg.edit({ text: errorMsg, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+    await msg.edit({ text: errorMsg });
   }
 }
 
@@ -2203,9 +2194,7 @@ class MessageFormatter {
   static async sendFile(client: TelegramClient, peer: any, file: any, caption?: string) {
     return await client.sendFile(peer, {
       file,
-      caption,
-      /* mtcute: use thtml as html(...) */  // 必需！确保HTML格式正确解析
-    });
+      caption });
   }
   
   // 构建安全的HTML消息
@@ -2307,7 +2296,7 @@ const caption = MessageFormatter.buildHtml([
 // plugins/myplugin.ts
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -2318,9 +2307,9 @@ class MyPlugin extends Plugin {
   description = `我的插件说明\n\n使用 ${mainPrefix}mycommand 触发`;
   
   cmdHandlers = {
-    mycommand: async (msg: Api.Message) => {
+    mycommand: async (msg: MessageContext) => {
       const text = `<b>Hello from MyPlugin!</b>`;
-      await msg.edit({ text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+      await msg.edit({ text });
     }
   };
 }
@@ -2341,27 +2330,22 @@ export default new MyPlugin();
 
 ```typescript
 import { getGlobalClient } from "@utils/runtimeManager";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 
 const client = await getGlobalClient();
 
 // 发送消息
-await client.sendMessage(chatId, { 
-  message: "Hello",
-  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
-});
+await client.sendText(chatId, "Hello");
 
 // 编辑消息
 await msg.edit({ 
-  text: "<b>Updated</b>", 
-  /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
-});
+  text: "<b>Updated</b>" });
 
 // 删除消息
-await msg.delete({ revoke: true });
+await msg.delete();
 
 // 获取实体
-const entity = await client.getEntity(peer);
+const chat = await client.getChat(peer);
 ```
 
 #### 数据库操作 (lowdb)
@@ -2487,7 +2471,7 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 2. **异步处理**
    ```typescript
    // 优先使用 async/await
-   async function processMessage(msg: Api.Message): Promise<void> {
+   async function processMessage(msg: MessageContext): Promise<void> {
      try {
        const result = await someAsyncOperation();
        await msg.edit({ text: result });
@@ -2595,7 +2579,7 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
      peer: any,
      text: string,
      options?: SendOptions
-   ): Promise<Api.Message> {
+   ): Promise<Message> {
      // 实现代码
    }
    ```
@@ -2768,27 +2752,23 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 
 class SimplePlugin extends Plugin {
   description = "📌 简单示例插件";
   
   cmdHandlers = {
-    ping: async (msg: Api.Message) => {
+    ping: async (msg: MessageContext) => {
       const start = Date.now();
       await msg.edit({ text: "Pong! 🏓" });
       const latency = Date.now() - start;
       await msg.edit({ 
-        text: `Pong! 🏓\n响应时间: ${latency}ms`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+        text: `Pong! 🏓\n响应时间: ${latency}ms` });
     },
-    echo: async (msg: Api.Message) => {
+    echo: async (msg: MessageContext) => {
       const text = msg.text?.replace(/^[.!。]echo\s*/i, "") || "无内容";
       await msg.edit({
-        text: `🗣️ <b>回声:</b>\n<code>${text}</code>`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+        text: `🗣️ <b>回声:</b>\n<code>${text}</code>` });
     }
   };
 }
@@ -2800,7 +2780,7 @@ export default new SimplePlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
@@ -2820,7 +2800,7 @@ class DataPlugin extends Plugin {
   }
   
   cmdHandlers = {
-    save: async (msg: Api.Message) => {
+    save: async (msg: MessageContext) => {
       const content = msg.text?.replace(/^[.!。]save\s*/i, "");
       if (!content) {
         await msg.edit({ text: "❌ 请提供要保存的内容" });
@@ -2840,7 +2820,7 @@ class DataPlugin extends Plugin {
       await msg.edit({ text: "✅ 已保存" });
     },
     
-    list: async (msg: Api.Message) => {
+    list: async (msg: MessageContext) => {
       if (!this.db) await this.initDB();
       
       const userId = msg.senderId?.toString() || "unknown";
@@ -2860,7 +2840,7 @@ class DataPlugin extends Plugin {
         text += `${i + 1}. <code>${r.content}</code>\n   <i>${date}</i>\n\n`;
       });
       
-      await msg.edit({ text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+      await msg.edit({ text });
     }
   };
 }
@@ -2872,7 +2852,7 @@ export default new DataPlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import { JSONFilePreset } from "lowdb/node";
 import * as path from "path";
@@ -2897,7 +2877,7 @@ class MonitorPlugin extends Plugin {
   }
   
   // 监听所有消息
-  listenMessageHandler = async (msg: Api.Message) => {
+  listenMessageHandler = async (msg: MessageContext) => {
     const userId = msg.senderId?.toString();
     if (!userId) return;
     
@@ -2917,7 +2897,7 @@ class MonitorPlugin extends Plugin {
   listenMessageHandlerIgnoreEdited = true;
   
   cmdHandlers = {
-    stats: async (msg: Api.Message) => {
+    stats: async (msg: MessageContext) => {
       const data = this.stats.data;
       const userCount = Object.keys(data.users).length;
       
@@ -2925,9 +2905,7 @@ class MonitorPlugin extends Plugin {
         text: `📊 <b>统计信息:</b>\n\n` +
               `📨 总消息数: <code>${data.totalMessages}</code>\n` +
               `👥 活跃用户: <code>${userCount}</code>\n` +
-              `🔍 Help请求: <code>${data.keywords.help || 0}</code>`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+              `🔍 Help请求: <code>${data.keywords.help || 0}</code>` });
     }
   };
 }
@@ -2939,7 +2917,7 @@ export default new MonitorPlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { cronManager } from "@utils/cronManager";
 
@@ -2957,21 +2935,17 @@ class SchedulePlugin extends Plugin {
           process.env.TB_CMD_IGNORE_EDITED || "true"  // 默认为true，忽略编辑消息
         );
         const chatId = process.env.TB_REPORT_CHAT || "me";
-        await client.sendMessage(chatId, {
-          message: "📅 每日报告\n\n今天是新的一天，加油！"
-        });
+        await client.sendText(chatId, "📅 每日报告\n\n今天是新的一天，加油！");
       }
     }
   };
   
   cmdHandlers = {
-    remind: async (msg: Api.Message) => {
+    remind: async (msg: MessageContext) => {
       const parts = msg.text?.split(/\s+/) || [];
       if (parts.length < 3) {
         await msg.edit({
-          text: "❌ 用法: <code>.remind [分钟] [提醒内容]</code>",
-          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-        });
+          text: "❌ 用法: <code>.remind [分钟] [提醒内容]</code>" });
         return;
       }
       
@@ -2986,10 +2960,8 @@ class SchedulePlugin extends Plugin {
       const reminderId = Date.now().toString();
       const timeout = setTimeout(async () => {
         const client = await getGlobalClient();
-        await client.sendMessage(msg.peerId, {
-          message: `⏰ <b>提醒:</b> ${reminder}`,
-          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */,
-          replyTo: msg.id
+        await client.sendText(msg.chat.id, html`⏰ <b>提醒:</b> ${reminder}`, {
+          replyTo: msg.id,
         });
         this.reminders.delete(reminderId);
       }, minutes * 60 * 1000);
@@ -2997,21 +2969,17 @@ class SchedulePlugin extends Plugin {
       this.reminders.set(reminderId, timeout);
       
       await msg.edit({
-        text: `✅ 已设置提醒，将在 ${minutes} 分钟后提醒您`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+        text: `✅ 已设置提醒，将在 ${minutes} 分钟后提醒您` });
     },
     
-    reminders: async (msg: Api.Message) => {
+    reminders: async (msg: MessageContext) => {
       if (this.reminders.size === 0) {
         await msg.edit({ text: "📝 没有活动的提醒" });
         return;
       }
       
       await msg.edit({
-        text: `📝 活动提醒数量: ${this.reminders.size}`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */
-      });
+        text: `📝 活动提醒数量: ${this.reminders.size}` });
     }
   };
 }
@@ -3026,7 +2994,7 @@ export default new SchedulePlugin();
 ```typescript
 // 核心导入
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "teleproto";
+import type { MessageContext } from "@mtcute/dispatcher";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { getPrefixes } from "@utils/pluginManager";
 
@@ -3050,8 +3018,8 @@ import dayjs from "dayjs";
 class QuickPlugin extends Plugin {
   description = "快速插件";
   cmdHandlers = {
-    cmd: async (msg: Api.Message) => {
-      await msg.edit({ text: "处理完成", /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+    cmd: async (msg: MessageContext) => {
+      await msg.edit({ text: "处理完成" });
     }
   };
 }
@@ -3076,9 +3044,7 @@ try {
   // 业务逻辑
 } catch (error) {
   await msg.edit({ 
-    text: `❌ 错误: ${error.message}`,
-    /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
-  });
+    text: `❌ 错误: ${error.message}` });
 }
 
 // lowdb配置管理
@@ -3162,7 +3128,7 @@ class MusicPlugin extends Plugin {
 ```typescript
 class SSHPlugin extends Plugin {
   cmdHandlers = {
-    ssh: async (msg: Api.Message) => {
+    ssh: async (msg: MessageContext) => {
       const parts = msg.text?.split(/\s+/) || [];
       const cmd = (parts[1] || "help").toLowerCase();
       
@@ -3178,7 +3144,7 @@ class SSHPlugin extends Plugin {
           await this.executeCommand(msg);
           break;
         default:
-          await msg.edit({ text: help_text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+          await msg.edit({ text: help_text });
       }
     }
   }
@@ -3290,7 +3256,7 @@ class MyPlugin extends Plugin {
     cmd: async (msg) => {
       const sub = msg.text?.split(/\s+/)[1];
       if (!sub || sub === 'help' || sub === 'h') {
-        await msg.edit({ text: help_text, /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ });
+        await msg.edit({ text: help_text });
         return;
       }
       // 处理其他子命令...
@@ -3327,9 +3293,7 @@ cmdHandlers = {
       // 参数验证
       if (!args.length) {
         await msg.edit({ 
-          text: "❌ 请提供必要参数", 
-          /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
-        });
+          text: "❌ 请提供必要参数" });
         return;
       }
       
@@ -3339,9 +3303,7 @@ cmdHandlers = {
     } catch (error) {
       console.error(`[${PLUGIN_NAME}] 错误:`, error);
       await msg.edit({ 
-        text: `❌ 错误: ${htmlEscape(error.message)}`,
-        /* mtcute: use thtml as html(...) for TextWithEntities, no parseMode */ 
-      });
+        text: `❌ 错误: ${htmlEscape(error.message)}` });
     }
   }
 }
@@ -3352,12 +3314,12 @@ cmdHandlers = {
 
 ### 客户端库
 
-项目当前使用 `@mtcute/node`（mtcute 原生 API），开发插件时应优先参考仓库现有代码中的以下导入方式：
+开发插件时应优先参考仓库现有代码中的以下导入方式：
 
 ```ts
-import { TelegramClient } from "@mtcute/node";
-import { Api } from "@mtcute/core";
-// 注：mtcute 版本不依赖 teleproto，所有 API 调用使用 mtcute 原生接口
+import { TelegramClient, thtml as html } from "@mtcute/node";
+import type { MessageContext } from "@mtcute/dispatcher";
+// 带格式的文本用 html(...) 包裹；命令 handler 参数类型为 MessageContext
 ```
 
 ### Cleanup / 资源回收要求
