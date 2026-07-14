@@ -476,7 +476,7 @@ size: ${stat.size} bytes`
     if (stat.size <= 0) throw new Error("文件为空");
     if (stat.size > MAX_SEND_SIZE) throw new Error("文件超过 50 MB 发送上限");
     const client = context.msg.client || await (0, import_globalClient.getGlobalClient)();
-    if (!client?.sendFile) throw new Error("Telegram client 不支持发送文件");
+    if (!client?.sendMedia) throw new Error("Telegram client 不支持发送文件");
     const caption = asString(args.caption).trim() || `文件：${import_path.basename(target)}`;
     await getPlatform().sendFile(client, context.msg, target, caption);
     return {

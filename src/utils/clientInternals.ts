@@ -31,7 +31,7 @@ export interface ClientInternals {
   getInputEntity(target: unknown): Promise<unknown>;
   getEntity(target: unknown): Promise<unknown>;
   sendMessage(peer: unknown, options: Record<string, unknown>): Promise<unknown>;
-  sendFile(peer: unknown, opts: Record<string, unknown>): Promise<void>;
+  sendMedia(peer: unknown, media: unknown, params?: Record<string, unknown>): Promise<unknown>;
   getDialogs(params: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
   call(params: unknown): Promise<unknown>;
   startUpdatesLoop?: () => Promise<void>;
@@ -63,14 +63,17 @@ export interface ClientWithGetMessages {
 }
 
 /**
- * Extended client interface for the internal `sendFile` method.
- * mtcute's TelegramClient exposes sendFile internally but it is not in the public types.
+ * Extended client interface for media sending.
+ * Prefer public `client.sendMedia(...)` — mtcute has no `sendFile`.
  *
- * Cast via: `(client as unknown as ClientWithSendFile).sendFile(peerId, { file, ... })`
+ * Cast via: `(client as unknown as ClientWithSendMedia).sendMedia(peerId, media, params)`
  */
-export interface ClientWithSendFile {
-  sendFile(peerId: unknown, opts: Record<string, unknown>): Promise<unknown>;
+export interface ClientWithSendMedia {
+  sendMedia(peerId: unknown, media: unknown, params?: Record<string, unknown>): Promise<unknown>;
 }
+
+/** @deprecated mtcute has no sendFile; use ClientWithSendMedia / client.sendMedia */
+export type ClientWithSendFile = ClientWithSendMedia;
 
 /**
  * Result type for users.getFullUser calls.

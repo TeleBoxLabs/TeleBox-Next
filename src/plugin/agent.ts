@@ -147,13 +147,18 @@ const platform: AgentPlatform = {
   },
 
   async sendFile(client: any, msg: any, filePath: string, caption: string) {
-    await client.sendMedia(msg.chat.id, {
-      type: "document",
-      file: filePath,
-      caption,
-      fileName: import_path.basename(filePath),
-      replyTo: msg.replyToMessage?.id,
-    });
+    await client.sendMedia(
+      msg.chat.id,
+      {
+        type: "document",
+        file: filePath,
+        caption,
+        fileName: import_path.basename(filePath),
+      },
+      {
+        replyTo: msg.replyToMessage?.id,
+      },
+    );
   },
 };
 
