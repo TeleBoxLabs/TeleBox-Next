@@ -178,10 +178,14 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
       try {
         const mod = require("../plugin/update") as {
           flushPendingStatusDeletes?: () => Promise<void>;
+          flushPendingReactions?: () => Promise<void>;
         };
         await mod.flushPendingStatusDeletes?.();
+        // Apply ✅ reactions queued by auto-update BEFORE the restart — now that
+        // the new runtime is fully online (equivalent to the manual-update summary).
+        await mod.flushPendingReactions?.();
       } catch (e) {
-        logger.warn("[RUNTIME] pending status deletes:", e);
+        logger.warn("[RUNTIME] pending status deletes/reactions:", e);
       }
     })();
     runtime.state = "running";
