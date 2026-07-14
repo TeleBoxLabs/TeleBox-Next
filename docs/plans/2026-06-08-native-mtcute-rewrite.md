@@ -151,7 +151,7 @@ abstract class Plugin {
 
 ---
 
-## Phase 4:123 插件批量迁移(TeleBox-Next_Plugins)
+## Phase 4:123 插件批量迁移(TeleBox-Next-Plugins)
 
 **策略:** 按 Api.* 复杂度分三批。每批用 subagent 并行(用户已授权多 agent，最多 3 并发)。
 
