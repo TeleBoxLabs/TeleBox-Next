@@ -20,11 +20,11 @@
   - 已完成：经对比 teleproto 版 channelGapBreaker.ts，mtcute 版此前已含指数退避、1.225 updateManager 布局支持、Constructor schema desync 识别与冷却期内静默重清 pts。本次补齐 teleproto 最近一次增强（commit 428f632：有界驱逐防止 channelFailures Map 无限增长）：补定义此前缺失的 `MAX_TRACKED_CHANNELS`(500) 与 `EVICTION_MIN_AGE_MS`(2h) 常量，新增 `evictStaleRecords()` 并在 `recordChannelGapFailure` 达到上限时主动驱逐空闲记录（保留活跃故障/断路器/已升级的退避冷却）。同时把 logger.ts `extractChannelId` 同步 teleproto 新增的 `fetching difference for <id>` 与通用 `updates (\d{8,})` 提取模式（替换原先仅匹配行尾的 `WRN updates`）。`tsc --noEmit` 通过（exit 0）。
 - [x] 5. logger 增强同步 — PERSISTENT/HISTORY 降级、速率限制、通道间隙处理、全局错误处理器、代理支持
   - 已完成：对比 teleproto 版 logger.ts，mtcute 版此前已包含 PERSISTENT/HISTORY 降级、5 分钟/通道速率限制、downgradeLastLogged 有界驱逐、通道间隙断路器处理（channelId 提取已补齐 `fetching difference for <id>` 与 `updates (\d{8,})` 模式，比 teleproto 更新）。本次补齐 teleproto 在 logger 之外的两项增强：`src/index.ts` (1) 新增全局 axios 代理支持（读取 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量，parseProxy 后写入 axios.defaults.proxy），(2) 全局错误处理器改从 `process.exit(1)` 退出改为只记录 `logger.error` 不退出——避免单个未捕获 rejection 直接崩溃整个进程（对齐 teleproto commit 47d0798）。`tsc --noEmit` 通过（exit 0）。
-- [x] 6. TeleBox_Plugins 新增插件迁移 (6个) — fbi、music_hub、auto_sign、codex_image、kitt、netease
+- [x] 6. TeleBox-Plugins 新增插件迁移 (6个) — fbi、music_hub、auto_sign、codex_image、kitt、netease
   - 已完成：6 个插件中 music_hub、codex_image、kitt、netease 此前已是 mtcute 原生版（无 teleproto 引用，tsc 通过）。本次补齐缺失的两个：
-    - `fbi`：teleproto 源在 /root/TeleBox_Plugins/fbi/fbi.ts（仅存在于 teleproto 插件仓库）。用 mtcute 原生 API 完整改写后新增至 TeleBox-Next-Plugins/fbi/fbi.ts：`getDialogs`→`client.iterDialogs` 异步迭代、`iterMessages`→`client.getHistory`、`getEntity`→`client.getChat`、`msg.edit/sendMessage`→`msg.edit`/`client.sendText`+`client.editMessage({chatId,message})`、`deleteMessages`→`client.deleteMessagesById`、`Api.Message`→mtcute `MessageContext`/`Chat`/`User`；XSS 转义改用 `@utils/htmlEscape`；复用 `safeGetReplyMessage`、`getGlobalClient`、logger；保留 `setup()` 初始化 DB 与 `cleanup()` 定时器清理（防 reload 泄漏）。`tsc --noEmit` 对 6 个插件全部通过（exit 0）。
+    - `fbi`：teleproto 源在 /root/TeleBox-Plugins/fbi/fbi.ts（仅存在于 teleproto 插件仓库）。用 mtcute 原生 API 完整改写后新增至 TeleBox-Next-Plugins/fbi/fbi.ts：`getDialogs`→`client.iterDialogs` 异步迭代、`iterMessages`→`client.getHistory`、`getEntity`→`client.getChat`、`msg.edit/sendMessage`→`msg.edit`/`client.sendText`+`client.editMessage({chatId,message})`、`deleteMessages`→`client.deleteMessagesById`、`Api.Message`→mtcute `MessageContext`/`Chat`/`User`；XSS 转义改用 `@utils/htmlEscape`；复用 `safeGetReplyMessage`、`getGlobalClient`、logger；保留 `setup()` 初始化 DB 与 `cleanup()` 定时器清理（防 reload 泄漏）。`tsc --noEmit` 对 6 个插件全部通过（exit 0）。
     - `auto_sign`（自动签到）：其 teleproto 对应实现为 `checkin/checkin.ts`（commit a909490「自动签到插件 (#240)」），该 mtcute 版 `checkin/checkin.ts` 此前已存在并迁移完成，命令为 `.qd`。故 6 个新增插件全部就位。
-- [x] 7. TeleBox_Plugins 安全修复同步 — exec→execFile 防注入、XSS 转义、缓存限制、清理方法、生命周期管理、FLOOD_WAIT 处理
+- [x] 7. TeleBox-Plugins 安全修复同步 — exec→execFile 防注入、XSS 转义、缓存限制、清理方法、生命周期管理、FLOOD_WAIT 处理
   - 已完成（核心命令注入修复）：对比 teleproto 版安全修复提交（2053f03 yt-dlp、c504b74 tts/t、c0c751b openlist、62c206c convert、2c5301d gif、05fdb33 speedlink、417e562 dig/service、1edb3bd qr），将 mtcute 插件仓库中所有「用户输入流入 shell 字符串」的 `exec()` 调用改写为 `execFile()` + 参数数组（shell:false，无 shell 插值），从根本上杜绝命令注入：
     - `audio_to_voice/audio_to_voice.ts`：`exec`→`execFile`，ffmpeg 转码参数改为数组。
     - `t/t.ts`：`generateMusic`（用户提供 title/artist/album 经 ffmpeg -metadata 注入）与 `generateSpeechSimple` 全部改用 `execFileAsync("ffmpeg", [...], { shell: false })` 参数数组。
@@ -32,7 +32,7 @@
     - 已验证 convert、speedlink、gif、qr、dig、service 此前在 mtcute 版已使用 execFile/spawn 参数数组，毋需改动。
     - 经 `tsc --noEmit` 对三个改动文件类型检查通过（无错误）。
   - 说明：缓存限制 / cleanup() / 生命周期 / FLOOD_WAIT 类修复（teleproto 82ed0e3 eat/clean_member、b1d1f51 quote、a9de9a1 aban、1fa... paolu、798c0d2 lifecycle 等）主要落在任务 #12/#13（功能修复 / 架构改进）范畴，本任务聚焦最高危的命令注入，已同步完成。
-- [x] 8. 补充缺失插件 (fbi → TeleBox-Next-Plugins) — fbi 仅存在于 TeleBox_Plugins，需完整迁移
+- [x] 8. 补充缺失插件 (fbi → TeleBox-Next-Plugins) — fbi 仅存在于 TeleBox-Plugins，需完整迁移
   - 已完成：随任务 #6 一并完成。fbi 已用 mtcute 原生 API 改写并新增至 TeleBox-Next-Plugins/fbi/fbi.ts，`tsc --noEmit` 通过。
 - [x] 9. telebox-next 核心框架同步 — generationContext、pluginManager、runtimeManager、logger 等核心文件
   - 已完成：逐项对比 teleproto 与 mtcute 四个核心文件。`generationContext.ts` 与 `pluginManager.ts` 此前已用 mtcute 原生 API（logger、Dispatcher、Proxy 别名、并行 setup）改写，且比 teleproto 更完善（console.* → logger、teleproto 事件 → mtcute Dispatcher）。`logger.ts` 此前已含 PERSISTENT/HISTORY 降级、速率限制、有界驱逐、通道间隙断路器（比 teleproto 更新），无需改动。
@@ -46,7 +46,7 @@
     - loginManager（mtcute 用 `client.start()` + SQLite 存储，`startUpdatesLoop` 修复）、apiConfig（`safeJsonParse` + logger + `LegacyProxyConfig` 类型替代 `any`）、conversation（mtcute 原生 `Conversation` 类封装）、telegraphFormatter/telegramFormatter（logger 集成 + URL 校验错误日志）、authGuards（`getMe()` 直接返回 `User`，无 teleproto `Api.User` 残留）已全部以 mtcute 原生 API 改写，且比 teleproto 更优（类型收窄、`console.*`→logger）。
     - **修复一处真实迁移 bug**：`banUtils.getBannedUsers` 先前机械照搬 teleproto `ChannelParticipantBanned` 的字段形状，访问 `member.peer.userId` / `member.kickedBy` / `member.date`，但 mtcute 的 `ChatMember` 对象根本没有这些字段（实体封在 `member.user` 访问器、封禁者经 `member.restrictedBy`、时间在 `member.raw.date`），导致该判定恒为 false、函数永远返回空数组。已改为 mtcute 原生访问：`member.user` + `member.restrictedBy` + `(member.raw as {date?}).date`，并修正 `username`/`title` 的 `string|null`→`string|undefined` 类型。`tsc --noEmit` 对 banUtils.ts 无报错。
   - 任务 #11 完成。
-- [x] 12. TeleBox_Plugins 功能修复同步 (18+) — sendat、autodel、quote、zhijiao、lu_bs、aban、speedlink、dig、convert、paolu、qr、eat、clean_member、getstickers、diss、xmsl、oxost、whois、pmcaptcha
+- [x] 12. TeleBox-Plugins 功能修复同步 (18+) — sendat、autodel、quote、zhijiao、lu_bs、aban、speedlink、dig、convert、paolu、qr、eat、clean_member、getstickers、diss、xmsl、oxost、whois、pmcaptcha
   - 进度：逐项对比 teleproto 版对应插件，针对 mtcute 版的迁移缺陷进行修复。
     - [x] sendat / autodel / quote / zhijiao / lu_bs / aban：见上方各条，均已修复并提交插件仓库。
     - [x] speedlink（本轮复核）：完整通读 mtcute 版与 teleproto 版 `speedlink.ts`（993 vs 1039 行）。mtcute 版已用 mtcute 原生 API 完整迁移——`MessageContext`/`msg.text`/`msg.chat.id`/`msg.client.sendMedia`/`downloadAsBuffer`/`replyToMessage`/`edit`/`deleteMessages`、共享 `logger`、`getErrorMessage`、`@utils/htmlEscape`、命令注入防护（`spawn`+`shell:false`+参数数组）。逐段 diff 无功能缺口，无需改动。

@@ -1,11 +1,11 @@
 #!/bin/bash
 # TeleBox-Next 插件迁移状态检查
 #
-# 迁移进度以【规范插件仓库】为准：/root/TeleBox_Plugins_mtcute/<name>/<name>.ts
+# 迁移进度以【规范插件仓库】为准：/root/TeleBox-Plugins_mtcute/<name>/<name>.ts
 # 注意：主仓库 telebox-next/plugins/*.ts 是 .gitignore 的运行时副本（tpm 安装落盘），
 #       不能作为迁移进度判据。outdated/ 和 scripts/ 目录不是插件，需排除。
 
-CANONICAL_REPO="/root/TeleBox_Plugins_mtcute"
+CANONICAL_REPO="/root/TeleBox-Plugins_mtcute"
 MAIN_REPO="/root/telebox-next"
 
 cd "$CANONICAL_REPO" || { echo "❌ 找不到规范插件仓库 $CANONICAL_REPO"; exit 1; }
