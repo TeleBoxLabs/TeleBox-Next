@@ -1,6 +1,8 @@
 import { MessageContext } from "@mtcute/dispatcher";
 import { thtml } from "@mtcute/html-parser";
 import type { InputText, TextWithEntities } from "@mtcute/core";
+import fs from "fs";
+import path from "path";
 import { logger } from "@utils/logger";
 
 /**
@@ -49,6 +51,45 @@ export function coerceHtmlInputText(text: unknown): unknown {
     logger.debug?.("[html-compat] thtml parse failed, sending plain:", e);
     return text;
   }
+}
+
+
+/**
+ * mtcute treats every plain string as Bot API file-id unless:
+ * - http(s):// URL
+ * - file: local path prefix
+ * Bare paths like `/tmp/a.png` hit parseFileId → UnsupportedError.
+ */
+export function coerceLocalFilePath(file: unknown): unknown {
+  if (typeof file !== "string") return file;
+  if (file.startsWith("file:")) return file;
+  if (/^https?:\/\//i.test(file)) return file;
+  // Absolute / relative filesystem paths
+  const looksPath =
+    file.startsWith("/") ||
+    file.startsWith("./") ||
+    file.startsWith("../") ||
+    /^[A-Za-z]:[\\/]/.test(file);
+  if (looksPath) {
+    return `file:${file}`;
+  }
+  // Bare filename that exists on disk (e.g. relative to cwd)
+  try {
+    if (fs.existsSync(file)) {
+      return `file:${path.resolve(file)}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return file;
+}
+
+function coerceMediaFileField(media: unknown): unknown {
+  if (!media || typeof media !== "object") return media;
+  const m = media as Record<string, unknown>;
+  if (!("file" in m)) return media;
+  const next = { ...m, file: coerceLocalFilePath(m.file) };
+  return next;
 }
 
 function patchEditParams<T extends { text?: InputText; media?: unknown }>(
@@ -186,18 +227,24 @@ export function patchTelegramClientHtmlCompat(client: {
   if (typeof c.sendMedia === "function") {
     const orig = c.sendMedia.bind(c);
     c.sendMedia = (chatId, media, params) => {
-      let m = media;
-      if (
-        m &&
-        typeof m === "object" &&
-        m !== null &&
-        "caption" in (m as object) &&
-        typeof (m as { caption?: unknown }).caption === "string"
-      ) {
-        m = {
-          ...(m as object),
-          caption: coerceHtmlInputText((m as { caption: string }).caption),
-        };
+      // bare path string as media → file: prefix
+      let m: unknown = media;
+      if (typeof m === "string") {
+        m = coerceLocalFilePath(m);
+      } else {
+        m = coerceMediaFileField(m);
+        if (
+          m &&
+          typeof m === "object" &&
+          m !== null &&
+          "caption" in (m as object) &&
+          typeof (m as { caption?: unknown }).caption === "string"
+        ) {
+          m = {
+            ...(m as object),
+            caption: coerceHtmlInputText((m as { caption: string }).caption),
+          };
+        }
       }
       let p = params;
       if (p && typeof p.caption === "string") {
@@ -225,7 +272,7 @@ export function patchTelegramClientHtmlCompat(client: {
             chatId,
             {
               type: forceDoc ? "document" : "auto",
-              file: fileOrOpts,
+              file: coerceLocalFilePath(fileOrOpts),
               ...(caption !== undefined ? { caption } : {}),
               ...(typeof maybeParams?.fileName === "string"
                 ? { fileName: maybeParams.fileName }
@@ -246,7 +293,7 @@ export function patchTelegramClientHtmlCompat(client: {
             type:
               (o.type as string) ||
               (forceDoc ? "document" : "photo"),
-            file,
+            file: coerceLocalFilePath(file),
             ...(caption !== undefined ? { caption } : {}),
             ...(typeof o.fileName === "string" ? { fileName: o.fileName } : {}),
             ...(o.attributes ? { attributes: o.attributes } : {}),
@@ -257,5 +304,5 @@ export function patchTelegramClientHtmlCompat(client: {
     }
   }
 
-  logger.info("[html-compat] TelegramClient HTML auto-parse + sendFile alias ready");
+  logger.info("[html-compat] TelegramClient HTML auto-parse + local file: path + sendFile alias ready");
 }
