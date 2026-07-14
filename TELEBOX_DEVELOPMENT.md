@@ -271,7 +271,7 @@ run();
 | `sendLogDB.ts` | 发送日志数据库 |
 | `banUtils.ts` | 封禁管理工具 |
 | `cronManager.ts` | 定时任务管理器 |
-| `conversation.ts` | 对话管理器（仅 Classic 版；Next 使用原生对话 API） |
+| `conversation.ts` | 对话管理器（仅 Classic 版；Next 使用 mtcute 对话 API） |
 | `tlRevive.ts` | Telegram实体序列化工具 |
 | `npm_install.ts` | NPM包安装工具 |
 | `teleboxInfoHelper.ts` | 系统信息助手 |
