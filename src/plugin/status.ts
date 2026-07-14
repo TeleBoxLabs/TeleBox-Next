@@ -11,6 +11,7 @@ import { createDirectoryInAssets } from "@utils/pathHelpers";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import type { MessageContext } from "@mtcute/dispatcher";
+import { thtml as html } from "@mtcute/html-parser";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -26,7 +27,7 @@ const DEFAULT_TEMPLATE = `<b>📊 TeleBox-Next 运行状态</b>
 
 <b>📦 版本信息</b>
 • <b>Node.js版本:</b> <code>{nodejs}</code>
-• <b>Teleproto版本:</b> <code>{teleproto}</code>
+• <b>mtcute版本:</b> <code>{mtcute}</code>
 • <b>TeleBox版本:</b> <code>{telebox}</code>
 
 <b>📈 资源使用</b>
@@ -70,7 +71,8 @@ const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 
 <b>📦 版本信息</b>
 • <code>{nodejs}</code> - <b>Node.js版本</b>
-• <code>{teleproto}</code> - <b>Teleproto库版本</b>
+• <code>{mtcute}</code> - <b>mtcute库版本</b>
+• <code>{teleproto}</code> - <b>兼容别名（同 mtcute）</b>
 • <code>{telebox}</code> - <b>TeleBox版本</b>
 
 <b>📈 资源使用</b>
@@ -149,8 +151,9 @@ interface StatusData {
   // 新字段（匹配简化标签）
   kernel: string;             // 内核版本
   nodejs: string;             // Node.js版本
-  teleproto: string;           // Teleproto库版本
-  telebox: string;            // TeleBox版本
+  teleproto: string;           // 兼容别名（= mtcute 版本）
+  mtcute: string;             // mtcute 库版本
+  telebox: string;            // TeleBox-Next 版本
   os: string;                 // 操作系统信息
   loadaverage: string;        // 负载平均
   init: string;               // 初始化系统
@@ -185,7 +188,8 @@ interface SystemDetails {
 
 interface VersionInfo {
   nodejs: string;
-  teleproto: string;
+  teleproto: string; // alias of mtcute for old templates
+  mtcute: string;
   telebox: string;
 }
 
@@ -277,7 +281,7 @@ class TeleBoxSystemMonitor extends Plugin {
       });
       const sysInfo = await this.getSystemInfo();
       await msg.edit({
-        text: sysInfo,
+        text: html(sysInfo),
       });
     } catch (error) {
       await this.handleError(msg, error, "sysinfo");
@@ -291,7 +295,17 @@ class TeleBoxSystemMonitor extends Plugin {
       text: "🔄 正在获取状态信息...",
     });
     const startTime = Date.now();
-    const template = this.db?.data?.template || DEFAULT_TEMPLATE;
+    let template = this.db?.data?.template || DEFAULT_TEMPLATE;
+    // Migrate legacy Classic template labels after switch
+    if (template.includes("Teleproto版本") || (template.includes("{teleproto}") && !template.includes("{mtcute}"))) {
+      template = template
+        .replace(/Teleproto版本/g, "mtcute版本")
+        .replace(/\{teleproto\}/g, "{mtcute}");
+      if (this.db?.data) {
+        this.db.data.template = template;
+        await this.db.write();
+      }
+    }
     const statusData = await this.getStatusData();
     const scanTime = Date.now() - startTime;
     // 同时更新新旧字段
@@ -300,7 +314,8 @@ class TeleBoxSystemMonitor extends Plugin {
 
     const rendered = this.renderTemplate(template, statusData as unknown as Record<string, string>);
     await msg.edit({
-      text: rendered,
+      // mtcute needs TextWithEntities for HTML; plain string shows raw <b>/<code>
+      text: html(rendered),
     });
   }
 
@@ -315,7 +330,7 @@ class TeleBoxSystemMonitor extends Plugin {
 
   private async handleLifecycleStatus(msg: MessageContext): Promise<void> {
     await msg.edit({
-      text: this.formatLifecycleDiagnostics(),
+      text: html(this.formatLifecycleDiagnostics()),
     });
   }
 
@@ -330,7 +345,7 @@ class TeleBoxSystemMonitor extends Plugin {
       `• subprocess running + reload: child-process should be canceled, drained, or listed residual.\n` +
       `• cron callback mid-flight + reload: cron-job cancels; cron-execution drains or reports residual.`;
     await msg.edit({
-      text,
+      text: html(text),
     });
   }
 
@@ -350,7 +365,7 @@ class TeleBoxSystemMonitor extends Plugin {
     const escaped = template.replace(/[&<>"']/g, (m: string) => htmlMap[m] || m);
 
     await msg.edit({
-      text: `<b>📄 当前模板内容:</b>\n\n<code>${escaped}</code>`,
+      text: html(`<b>📄 当前模板内容:</b>\n\n<code>${escaped}</code>`),
     });
   }
 
@@ -445,6 +460,7 @@ class TeleBoxSystemMonitor extends Plugin {
       kernel: baseData.kernelInfo,
       nodejs: baseData.nodejsVersion,
       teleproto: baseData.teleprotoVersion,
+      mtcute: baseData.teleprotoVersion,
       telebox: baseData.teleboxVersion,
       os: baseData.osInfo,
       loadaverage: baseData.loadavgStr,
@@ -482,7 +498,7 @@ class TeleBoxSystemMonitor extends Plugin {
     await db.write();
 
     await msg.edit({
-      text: `✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果`,
+      text: html(`✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果`),
     });
   }
 
@@ -492,7 +508,7 @@ class TeleBoxSystemMonitor extends Plugin {
     db.data.template = DEFAULT_TEMPLATE;
     await db.write();
     await msg.edit({
-      text: "✅ 模板已重置为默认！",
+      text: html("✅ 模板已重置为默认！"),
     });
   }
 
@@ -802,18 +818,29 @@ Scan Time: ${scanTime}ms
   // ==================== 版本信息 ====================
   private async getVersionInfo(): Promise<VersionInfo> {
     try {
-      const packageJsonPath = path.join(process.cwd(), 'package.json');
-      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      const packageJsonPath = path.join(process.cwd(), "package.json");
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+      const deps = packageJson.dependencies || {};
+      // Prefer @mtcute/node (runtime); fall back to other @mtcute/* or legacy teleproto.
+      const raw =
+        deps["@mtcute/node"] ||
+        deps["@mtcute/core"] ||
+        deps["@mtcute/dispatcher"] ||
+        deps.teleproto ||
+        "unknown";
+      const mtcute = String(raw).replace(/^[\^~>=<\s]+/, "") || "unknown";
       return {
         nodejs: process.version,
-        teleproto: packageJson.dependencies?.teleproto?.replace('^', '') || 'unknown',
-        telebox: readDisplayVersion()
+        mtcute,
+        teleproto: mtcute, // old templates using {teleproto} still work
+        telebox: readDisplayVersion(),
       };
     } catch {
       return {
         nodejs: process.version,
-        teleproto: 'unknown',
-        telebox: readDisplayVersion()
+        mtcute: "unknown",
+        teleproto: "unknown",
+        telebox: readDisplayVersion(),
       };
     }
   }
