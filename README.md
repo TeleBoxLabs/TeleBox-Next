@@ -226,7 +226,7 @@ npm run dev   # 开发模式，前缀改为 ! / ！
 
 | | |
 |:--:|:--:|
-| [![TeleBox-Next](https://img.shields.io/badge/📦_TeleBox--Next-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next) | [![TeleBox Classic](https://img.shields.io/badge/📦_TeleBox-Classic-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox) |
+| [![TeleBox-Next](https://img.shields.io/badge/📦_TeleBox--Next-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next) | [![TeleBox](https://img.shields.io/badge/📦_TeleBox-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox) |
 | [![Plugins](https://img.shields.io/badge/🔌_TeleBox--Next--Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next-Plugins) | [![Issues](https://img.shields.io/badge/🆘_Issues-red?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next/issues) |
 
 <div align="center">
