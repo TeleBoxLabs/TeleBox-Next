@@ -616,7 +616,7 @@ async function pingDataCenters(): Promise<string[]> {
     const location = dcLocations[dc];
     const tcp = await tcpingProbe(ip, [443, 80], 2, 3000);
     if (tcp) {
-      return `🌐 <b>DC${dc} (${location}):</b> <code>${tcp.avg}ms</code> <i>TCP:${tcp.port}</i>`;
+      return `🌐 <b>DC${dc} (${location}):</b> <code>${tcp.avg}ms</code>`;
     }
     try {
       const { stdout } = await execFileAsync("ping", ["-c", "1", "-W", "5", ip], {
@@ -626,7 +626,7 @@ async function pingDataCenters(): Promise<string[]> {
       const pingTime = timeMatch
         ? String(Math.round(parseFloat(timeMatch[1])))
         : "0";
-      return `🌐 <b>DC${dc} (${location}):</b> <code>${pingTime}ms</code> <i>ICMP</i>`;
+      return `🌐 <b>DC${dc} (${location}):</b> <code>${pingTime}ms</code>`;
     } catch (_e: unknown) {
       logger.debug(`[ping] DC${dc} (${location}) TCP+ICMP 均失败`);
       return `🌐 <b>DC${dc} (${location}):</b> <code>超时</code>`;
@@ -662,7 +662,7 @@ function parseTarget(input: string): {
 
 class PingPlugin extends Plugin {
 
-  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping &lt;IP/域名&gt; - TCP 优先（fallback ICMP）\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
+  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping &lt;IP/域名&gt; - 目标延迟测试\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
   cmdHandlers: Record<string, (msg: MessageContext) => Promise<void>> = {
     ping: async (msg) => {
       const client = await getGlobalClient();
@@ -723,7 +723,7 @@ class PingPlugin extends Plugin {
         // 帮助信息
         if (target === "help" || target === "h") {
           await msg.edit({
-            text: html(`🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>TCP(443/80) 优先（走 config/PM2 代理），系统 ping 仅作 fallback</i>`),
+            text: html(`🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>支持 IP / 域名 / dc1-dc5；可走 config/PM2 代理</i>`),
           });
           return;
         }
@@ -755,7 +755,7 @@ class PingPlugin extends Plugin {
             ? " via proxy"
             : "";
           results.push(
-            `🏓 <b>TCP Ping:</b> <code>${avgText}ms</code> (port ${tcpProbe.port}, 丢包: ${tcpProbe.loss}%, best ${tcpProbe.best}ms${proxyHint})`
+            `🏓 <b>延迟:</b> <code>${avgText}ms</code> (丢包: ${tcpProbe.loss}%${proxyHint})`
           );
         } else {
           try {
@@ -764,40 +764,28 @@ class PingPlugin extends Plugin {
               const avgText =
                 pingResult.avg === 0 ? "<1" : pingResult.avg.toString();
               results.push(
-                `🏓 <b>ICMP Ping:</b> <code>${avgText}ms</code> (TCP 不可用, 丢包: ${pingResult.loss}%)`
+                `🏓 <b>延迟:</b> <code>${avgText}ms</code> (丢包: ${pingResult.loss}%)`
               );
             } else {
               const httpResult = await httpPing(testTarget, false);
               if (httpResult > 0) {
                 results.push(
-                  `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (TCP/ICMP 不可用)`
+                  `🏓 <b>延迟:</b> <code>${httpResult}ms</code>`
                 );
               } else {
-                results.push(`🏓 <b>连通性:</b> <code>TCP/ICMP/HTTP 均不可用</code>`);
+                results.push(`🏓 <b>连通性:</b> <code>不可达</code>`);
               }
             }
           } catch (_error: unknown) {
             const httpResult = await httpPing(testTarget, false);
             if (httpResult > 0) {
               results.push(
-                `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (TCP/ICMP 受限)`
+                `🏓 <b>延迟:</b> <code>${httpResult}ms</code>`
               );
             } else {
-              results.push(`🏓 <b>网络测试:</b> <code>TCP/ICMP/HTTP 均不可用</code>`);
+              results.push(`🏓 <b>网络测试:</b> <code>不可达</code>`);
             }
           }
-        }
-
-        // 补充端口明细
-        const [tcp80, tcp443] = await Promise.all([
-          tcpPing(testTarget, 80, 5000),
-          tcpPing(testTarget, 443, 5000),
-        ]);
-        if (tcp80 >= 0) {
-          results.push(`🌐 <b>TCP:80:</b> <code>${tcp80}ms</code>`);
-        }
-        if (tcp443 >= 0) {
-          results.push(`🔒 <b>TCP:443:</b> <code>${tcp443}ms</code>`);
         }
 
         // HTTPS 应用层
