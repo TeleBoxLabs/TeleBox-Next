@@ -96,9 +96,9 @@ function updateMemoryBaseline(config: HealthConfig, memory: ReturnType<typeof ge
 }
 
 function formatBaselineMode(mode: HealthConfig["baselineMode"]): string {
-  if (mode === "manual") return "手动";
-  if (mode === "on-reload") return "每次重载后自动更新";
-  return "开启时自动记录";
+  if (mode === "manual") return "手动（只有你 reset 才改）";
+  if (mode === "on-reload") return "每次重载插件后更新";
+  return "打开保护时自动记录";
 }
 
 function parseBaselineMode(input?: string): HealthConfig["baselineMode"] | null {
@@ -167,16 +167,16 @@ function collectReasons(config: HealthConfig, memory: ReturnType<typeof getMemor
   const growth = getGrowthStatus(config, memory);
   const reasons: string[] = [];
   if (memory.heapUsed > config.memoryThreshold) {
-    reasons.push(`Heap 使用 ${memory.heapUsed.toFixed(2)} MB 超过阈值 ${config.memoryThreshold} MB`);
+    reasons.push(`程序内存 ${memory.heapUsed.toFixed(2)} MB，超过上限 ${config.memoryThreshold} MB`);
   }
   if (memory.rss > config.rssThreshold) {
-    reasons.push(`RSS 总内存 ${memory.rss.toFixed(2)} MB 超过阈值 ${config.rssThreshold} MB`);
+    reasons.push(`总占用 ${memory.rss.toFixed(2)} MB，超过上限 ${config.rssThreshold} MB`);
   }
   if (growth.heapGrowthExceeded) {
-    reasons.push(`Heap 相对基线增长 ${formatMb(growth.heapGrowth)} 超过阈值 ${config.runtimeGrowthThreshold} MB`);
+    reasons.push(`程序内存比起点多了 ${formatMb(growth.heapGrowth)}，超过涨幅上限 ${config.runtimeGrowthThreshold} MB`);
   }
   if (growth.rssGrowthExceeded) {
-    reasons.push(`RSS 相对基线增长 ${formatMb(growth.rssGrowth)} 超过阈值 ${config.runtimeGrowthThreshold} MB`);
+    reasons.push(`总占用比起点多了 ${formatMb(growth.rssGrowth)}，超过涨幅上限 ${config.runtimeGrowthThreshold} MB`);
   }
   return { reasons, growth };
 }
@@ -236,17 +236,17 @@ async function notifyMe(htmlText: string, silent: boolean): Promise<void> {
 }
 
 function formatMemoryInfo(memory: ReturnType<typeof getMemoryUsage>): string {
-  return `📊 TeleBox-Next 内存使用情况
-堆内存 (Heap):
-  • 已使用：${memory.heapUsed.toFixed(2)} MB
-  • 总分配：${memory.heapTotal.toFixed(2)} MB
-  • 占用率：${((memory.heapUsed / memory.heapTotal) * 100).toFixed(2)}%
-常驻内存 (RSS):
-  • ${memory.rss.toFixed(2)} MB
-外部内存:
-  • ${memory.external.toFixed(2)} MB
-ArrayBuffers:
-  • ${memory.arrayBuffers.toFixed(2)} MB`;
+  return `📊 <b>TeleBox-Next 内存快照</b>
+
+🧠 <b>程序内存（Heap）</b>
+  • 正在用：<code>${memory.heapUsed.toFixed(2)} MB</code>
+  • 已申请：<code>${memory.heapTotal.toFixed(2)} MB</code>
+  • 使用率：<code>${((memory.heapUsed / memory.heapTotal) * 100).toFixed(1)}%</code>
+
+💻 <b>系统占用（RSS，含进程整体）</b>
+  • <code>${memory.rss.toFixed(2)} MB</code>
+
+📎 其他：外部 <code>${memory.external.toFixed(2)} MB</code> · 缓冲 <code>${memory.arrayBuffers.toFixed(2)} MB</code>`;
 }
 
 function statusLevel(
@@ -261,7 +261,7 @@ function statusLevel(
     growth.heapGrowthExceeded ||
     growth.rssGrowthExceeded
   ) {
-    return { emoji: "🔴", text: "危险" };
+    return { emoji: "🔴", text: "偏高，需要关注" };
   }
   if (
     percentage > 70 ||
@@ -269,9 +269,9 @@ function statusLevel(
     (growth.heapGrowth != null && growth.heapGrowth > config.runtimeGrowthThreshold * 0.7) ||
     (growth.rssGrowth != null && growth.rssGrowth > config.runtimeGrowthThreshold * 0.7)
   ) {
-    return { emoji: "🟡", text: "警告" };
+    return { emoji: "🟡", text: "略高，继续观察" };
   }
-  return { emoji: "🟢", text: "正常" };
+  return { emoji: "🟢", text: "正常，放心用" };
 }
 
 async function healthMonitorTask() {
@@ -349,11 +349,11 @@ async function healthMonitorTask() {
     }
 
     await notifyMe(
-      `⚠️ <b>内存监控告警</b>\n\n` +
-        `触发原因：\n• ${reasons.join("\n• ")}\n\n` +
-        `当前：Heap <code>${memory.heapUsed.toFixed(2)} MB</code> · RSS <code>${memory.rss.toFixed(2)} MB</code>\n` +
-        `连续超限：<code>${overThresholdStreak}</code> · 任务：<code>${busy}</code>\n\n` +
-        `将优先 GC → 重建 Runtime；仍超限才重启进程。`,
+      `⚠️ <b>内存有点高，开始自动处理</b>\n\n` +
+        `原因：\n• ${reasons.join("\n• ")}\n\n` +
+        `现在：程序内存 <code>${memory.heapUsed.toFixed(2)} MB</code> · 总占用 <code>${memory.rss.toFixed(2)} MB</code>\n` +
+        `已连续偏高 <code>${overThresholdStreak}</code> 次 · 正在进行的任务 <code>${busy}</code> 个\n\n` +
+        `下一步：先尝试清理，再软重载；还不行才会整进程重启（PM2 会自动拉起）。`,
       config.silentEnabled,
     );
 
@@ -375,10 +375,10 @@ async function healthMonitorTask() {
         overThresholdStreak = 0;
         busyDeferSince = null;
         await notifyMe(
-          `✅ <b>Health 内存优化</b>\n\n` +
-            `已自动重建 Runtime，内存恢复安全范围。\n` +
-            `• Heap：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
-            `• RSS：<code>${after.rss.toFixed(2)} MB</code>`,
+          `✅ <b>内存已恢复正常</b>\n\n` +
+            `已自动软重载，不用你手动操作。\n` +
+            `• 程序内存：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
+            `• 总占用：<code>${after.rss.toFixed(2)} MB</code>`,
           config.silentEnabled,
         );
         return;
@@ -387,10 +387,10 @@ async function healthMonitorTask() {
       if (overThresholdStreak < hardNeed) {
         logger.info(`[Health] reload 后仍超限，等待 ${overThresholdStreak}/${hardNeed}`);
         await notifyMe(
-          `⚠️ <b>Health 内存优化</b>\n\n` +
-            `Runtime 重建后仍偏高，继续观察（${overThresholdStreak}/${hardNeed}）。\n` +
-            `• Heap：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
-            `• RSS：<code>${after.rss.toFixed(2)} MB</code>`,
+          `⚠️ <b>软重载后内存仍偏高</b>\n\n` +
+            `先不急着重启，再观察一会儿（${overThresholdStreak}/${hardNeed}）。\n` +
+            `• 程序内存：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
+            `• 总占用：<code>${after.rss.toFixed(2)} MB</code>`,
           config.silentEnabled,
         );
         return;
@@ -398,10 +398,11 @@ async function healthMonitorTask() {
 
       logger.info("[Health] hard streak 达到，process.exit");
       await notifyMe(
-        `⚠️ <b>Health 内存优化</b>\n\n` +
-          `整理后仍持续超限，即将重启整个程序。\n` +
-          `• Heap：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
-          `• RSS：<code>${after.rss.toFixed(2)} MB</code>`,
+        `⚠️ <b>准备重启程序</b>\n\n` +
+          `清理和软重载后内存还是偏高，马上整进程重启。\n` +
+          `不用慌：PM2 会自动再拉起 TeleBox。\n` +
+          `• 程序内存：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
+          `• 总占用：<code>${after.rss.toFixed(2)} MB</code>`,
         config.silentEnabled,
       );
       config.lastActionAt = Date.now();
@@ -411,7 +412,7 @@ async function healthMonitorTask() {
       logger.error("[Health] reloadRuntime 失败:", reloadError);
       if (!reloaded && overThresholdStreak >= hardNeed) {
         await notifyMe(
-          `⚠️ <b>Health 内存优化</b>\n\n自动重建 Runtime 失败，准备直接重启进程。`,
+          `⚠️ <b>软重载失败，准备重启</b>\n\n自动整理没成功，将直接重启程序（PM2 会自动拉起）。`,
           config.silentEnabled,
         );
         config.lastActionAt = Date.now();
@@ -424,24 +425,53 @@ async function healthMonitorTask() {
   }
 }
 
-const HELP_TEXT = `🩺 Health - 智能内存与运行健康
+const HELP_TEXT = `🩺 <b>Health · 内存守护</b>
 
-🔧 命令:
-• <code>${mainPrefix}health</code> - 内存与任务快照
-• <code>${mainPrefix}memory on/off</code> - 启用/关闭自动保护
-• <code>${mainPrefix}memory status</code> - 状态 / 建议
-• <code>${mainPrefix}memory reset</code> - 重记基线
-• <code>${mainPrefix}memory mode [auto/manual/reload]</code> - 基线策略
-• <code>${mainPrefix}memory set [safe/normal/aggressive]</code> - 预设
-• <code>${mainPrefix}memory set heap|rss|growth [MB]</code> - 阈值
-• <code>${mainPrefix}memory silent on/off</code> - 静默通知
+一句话：帮你盯着 TeleBox 吃了多少内存，偏高时自动收拾，尽量不打断正在做的事。
 
-🧠 智能策略:
-1. 连续多次超限才动作
-2. 有进行中任务时推迟
-3. GC → reloadRuntime → exit
-4. 动作冷却防抖动
-5. switch / runtime 切换中永不动作`;
+————————
+📌 <b>新手怎么用（3 步）</b>
+1. 发 <code>${mainPrefix}health</code> 看当前内存是否正常
+2. 发 <code>${mainPrefix}memory on</code> 打开自动保护（默认是关的）
+3. 想看详细状态发 <code>${mainPrefix}memory status</code>
+
+————————
+📖 <b>常用命令</b>
+• <code>${mainPrefix}health</code>
+  查看现在内存用了多少、是否安全
+• <code>${mainPrefix}memory on</code> / <code>${mainPrefix}memory off</code>
+  打开 / 关闭自动保护
+• <code>${mainPrefix}memory status</code>
+  看保护开没开、现在安不安全、系统建议你做什么
+• <code>${mainPrefix}memory reset</code>
+  把「对比起点」记成当前内存（适合刚清理完之后）
+• <code>${mainPrefix}memory set safe</code>
+  更敏感：内存稍高就处理（机器内存小推荐）
+• <code>${mainPrefix}memory set normal</code>
+  默认平衡（大多数人用这个）
+• <code>${mainPrefix}memory set aggressive</code>
+  更宽松：少打扰（插件很多、内存本来就高时用）
+• <code>${mainPrefix}memory silent on</code> / <code>off</code>
+  自动处理时要不要私信通知你（默认会通知「收藏夹/Saved Messages」）
+
+————————
+⚙️ <b>进阶（一般不用改）</b>
+• <code>${mainPrefix}memory mode auto</code> — 打开保护时自动记起点
+• <code>${mainPrefix}memory mode manual</code> — 只有你执行 reset 才改起点
+• <code>${mainPrefix}memory mode reload</code> — 每次重载插件后改起点
+• <code>${mainPrefix}memory set heap 150</code> — 程序内存上限（MB）
+• <code>${mainPrefix}memory set rss 512</code> — 总占用上限（MB）
+• <code>${mainPrefix}memory set growth 120</code> — 相对起点涨幅上限（MB）
+
+————————
+🧠 <b>自动保护怎么工作（人话）</b>
+1. 大约每 10 分钟检查一次
+2. 要连续好几次都偏高才动手（避免误报）
+3. 如果你正在跑任务，会先等一等，尽量不打断
+4. 处理顺序：先尝试清理 → 再软重载 → 实在不行才整进程重启（PM2 会自动拉起）
+5. 版本切换 / 正在重载时，绝对不会乱动
+
+💡 不知道从哪开始？先发 <code>${mainPrefix}memory on</code>，再发 <code>${mainPrefix}memory status</code> 看一眼就行。`;
 
 class HealthPlugin extends Plugin {
   cleanup(): void {
@@ -456,7 +486,7 @@ class HealthPlugin extends Plugin {
   cronTasks = {
     healthMonitor: {
       cron: "*/10 * * * *",
-      description: "智能内存监控：连续超限 → GC → 等任务 → reload → exit",
+      description: "定时检查内存：偏高时自动清理，尽量不打断正在进行的任务",
       handler: async () => await healthMonitorTask(),
     },
   };
@@ -471,15 +501,16 @@ class HealthPlugin extends Plugin {
         const busy = getBusyTaskCount();
         const fullText =
           `${formatMemoryInfo(memory)}\n\n` +
-          `<b>状态：</b> ${level.emoji} ${level.text}\n` +
-          `<b>进行中任务：</b> <code>${busy}</code>\n` +
-          `<b>超限连续采样：</b> <code>${overThresholdStreak}</code>\n` +
-          `<b>自动保护：</b> ${configDB.data.leakfixEnabled ? "✅ 开" : "❌ 关"}`;
+          `🚦 <b>总体：</b>${level.emoji} ${level.text}\n` +
+          `🛡 <b>自动保护：</b>${configDB.data.leakfixEnabled ? "✅ 已打开" : "❌ 未打开（发 " + mainPrefix + "memory on 可开启）"}\n` +
+          `🧵 <b>正在进行的任务：</b><code>${busy}</code> 个\n` +
+          `📈 <b>连续偏高次数：</b><code>${overThresholdStreak}</code>\n\n` +
+          `💡 详细状态：<code>${mainPrefix}memory status</code> · 帮助：<code>${mainPrefix}memory</code>`;
         await msg.edit({ text: html(fullText) });
       } catch (error: unknown) {
         logger.error("[Health] 命令失败:", error);
         await msg.edit({
-          text: html(`❌ 获取健康信息失败：${htmlEscape(getErrorMessage(error) || String(error))}`),
+          text: html(`❌ 没能读到内存信息：${htmlEscape(getErrorMessage(error) || String(error))}`),
         });
       }
     },
@@ -499,27 +530,27 @@ class HealthPlugin extends Plugin {
         await configDB.write();
         await msg.edit({
           text: html(
-            `✅ <b>Memory 保护已启用</b>\n\n连续超限才会动作；有任务时会推迟。\n📝 基线：${formatBaselineMode(configDB.data.baselineMode)}`,
+            `✅ <b>自动内存保护已打开</b>\n\n之后大约每 10 分钟检查一次。\n• 连续多次偏高才会处理（避免误报）\n• 有任务在跑时会先等一等，尽量不打断你\n• 对比起点：${formatBaselineMode(configDB.data.baselineMode)}\n\n查看状态：<code>${mainPrefix}memory status</code>`,
           ),
         });
       } else if (subCmd === "off") {
         configDB.data.leakfixEnabled = false;
         overThresholdStreak = 0;
         await configDB.write();
-        await msg.edit({ text: html("❌ <b>Memory 保护已关闭</b>") });
+        await msg.edit({ text: html("❌ <b>自动内存保护已关闭</b>\n\n系统不会再自动清理/重启。\n需要时再发 <code>${mainPrefix}memory on</code> 打开。") });
       } else if (subCmd === "set") {
         const target = parts[2]?.toLowerCase();
         const threshold = parseInt(parts[3], 10);
         if (target && ["safe", "normal", "aggressive"].includes(target)) {
           applyMemoryPreset(configDB.data, target as "safe" | "normal" | "aggressive");
           await configDB.write();
-          await msg.edit({ text: html(`✅ 已切换预设 <code>${target}</code>`) });
+          await msg.edit({ text: html(`✅ <b>已切换保护强度</b>：<code>${target}</code>\n查看：<code>${mainPrefix}memory status</code>`) });
           return;
         }
         if (isNaN(threshold) || threshold <= 0) {
           await msg.edit({
             text: html(
-              `❌ 参数错误\n预设：<code>${mainPrefix}memory set safe|normal|aggressive</code>\n阈值：heap|rss|growth [MB]`,
+              `❌ 参数不对\n一键：<code>${mainPrefix}memory set safe|normal|aggressive</code>\n上限：<code>${mainPrefix}memory set heap|rss|growth 数字</code>（单位 MB）`,
             ),
           });
           return;
@@ -528,20 +559,20 @@ class HealthPlugin extends Plugin {
         else if (target === "rss") configDB.data.rssThreshold = threshold;
         else if (target === "growth") configDB.data.runtimeGrowthThreshold = threshold;
         else {
-          await msg.edit({ text: html("❌ 支持 heap / rss / growth") });
+          await msg.edit({ text: html("❌ 只支持 heap（程序内存）/ rss（总占用）/ growth（涨幅）\n例：<code>${mainPrefix}memory set heap 150</code>") });
           return;
         }
         await configDB.write();
-        await msg.edit({ text: html(`✅ <code>${target}</code> = <code>${threshold} MB</code>`) });
+        await msg.edit({ text: html(`✅ 已更新：<code>${target}</code> = <code>${threshold} MB</code>\n查看：<code>${mainPrefix}memory status</code>`) });
       } else if (subCmd === "reset") {
         updateMemoryBaseline(configDB.data, getMemoryUsage());
         overThresholdStreak = 0;
         await configDB.write();
-        await msg.edit({ text: html("✅ 已重记当前内存为基线") });
+        await msg.edit({ text: html("✅ 已把当前内存记为新的对比起点\n之后「涨了多少」会从现在重新算。") });
       } else if (subCmd === "mode") {
         const mode = parseBaselineMode(parts[2]?.toLowerCase());
         if (!mode) {
-          await msg.edit({ text: html("❌ 可用：auto / manual / reload") });
+          await msg.edit({ text: html("❌ 请选择：\n• <code>${mainPrefix}memory mode auto</code> — 打开保护时自动记\n• <code>${mainPrefix}memory mode manual</code> — 只有 reset 才改\n• <code>${mainPrefix}memory mode reload</code> — 每次重载后改") });
           return;
         }
         configDB.data.baselineMode = mode;
@@ -549,19 +580,19 @@ class HealthPlugin extends Plugin {
           updateMemoryBaseline(configDB.data, getMemoryUsage());
         }
         await configDB.write();
-        await msg.edit({ text: html(`✅ 基线方式：${formatBaselineMode(mode)}`) });
+        await msg.edit({ text: html(`✅ 对比起点方式已更新：${formatBaselineMode(mode)}\n可用 <code>${mainPrefix}memory reset</code> 手动重记。`) });
       } else if (subCmd === "silent") {
         const silentCmd = parts[2]?.toLowerCase() || "help";
         if (silentCmd === "on" || silentCmd === "off") {
           configDB.data.silentEnabled = silentCmd === "on";
           await configDB.write();
           await msg.edit({
-            text: html(`✅ 静默模式：${configDB.data.silentEnabled ? "开" : "关"}`),
+            text: html(`${configDB.data.silentEnabled ? "🔕 已开启静默：自动处理时不再私信你" : "🔔 已关闭静默：自动处理时会私信通知你"}`),
           });
         } else {
           await msg.edit({
             text: html(
-              `🔕 静默：${configDB.data.silentEnabled ? "开" : "关"}\n<code>${mainPrefix}memory silent on|off</code>`,
+              `🔕 通知设置：${configDB.data.silentEnabled ? "静默（不私信）" : "会私信通知"}\n• <code>${mainPrefix}memory silent on</code> — 不通知\n• <code>${mainPrefix}memory silent off</code> — 通知我`,
             ),
           });
         }
@@ -570,27 +601,32 @@ class HealthPlugin extends Plugin {
         const growth = getGrowthStatus(configDB.data, memory);
         const level = statusLevel(configDB.data, memory, growth);
         const busy = getBusyTaskCount();
-        let advice = "当前正常，无需处理。";
+        let advice = "一切正常，不用管。";
         if (!configDB.data.leakfixEnabled) {
-          advice = `建议 <code>${mainPrefix}memory on</code> 开启保护。`;
-        } else if (level.text === "危险") {
+          advice = `建议先发 <code>${mainPrefix}memory on</code> 打开自动保护。`;
+        } else if (level.text.includes("偏高，需要关注")) {
           advice =
             busy > 0
-              ? `有 ${busy} 个任务进行中，自动保护会推迟。`
-              : `将按 streak 策略 GC → reload → exit。`;
-        } else if (level.text === "警告") {
-          advice = `继续观察；可用 <code>${mainPrefix}memory reset</code> 重记基线。`;
+              ? `现在有 ${busy} 个任务在跑，系统会先等任务结束再处理，尽量不打断你。`
+              : `系统会按策略自动清理；你也可以手动发 <code>${mainPrefix}reload</code> 软重载。`;
+        } else if (level.text.includes("略高")) {
+          advice = `先观察即可。若刚清理过，可发 <code>${mainPrefix}memory reset</code> 重记对比起点。`;
         }
         await msg.edit({
           text: html(
-            `📊 <b>Health / Memory 状态</b>\n\n` +
-              `🧩 保护：${configDB.data.leakfixEnabled ? "✅" : "❌"} · 静默：${configDB.data.silentEnabled ? "✅" : "❌"}\n` +
-              `🚦 ${level.emoji} <code>${level.text}</code> · 任务 <code>${busy}</code> · streak <code>${overThresholdStreak}</code>\n` +
-              `📝 基线：${formatBaselineMode(configDB.data.baselineMode)}\n\n` +
-              `📦 Heap <code>${memory.heapUsed.toFixed(2)}</code> / RSS <code>${memory.rss.toFixed(2)}</code> MB\n` +
-              `🛡️ 阈值 Heap <code>${configDB.data.memoryThreshold}</code> / RSS <code>${configDB.data.rssThreshold}</code> / 增长 <code>${configDB.data.runtimeGrowthThreshold}</code>\n` +
-              `📈 增长 Heap <code>${formatMb(growth.heapGrowth)}</code> / RSS <code>${formatMb(growth.rssGrowth)}</code>\n\n` +
-              `💡 ${advice}`,
+            `📊 <b>内存守护状态</b>\n\n` +
+              `🛡 自动保护：${configDB.data.leakfixEnabled ? "✅ 已打开" : "❌ 未打开"}\n` +
+              `🔔 私信通知：${configDB.data.silentEnabled ? "关闭（静默）" : "开启"}\n` +
+              `🚦 总体：${level.emoji} ${level.text}\n` +
+              `🧵 正在进行的任务：<code>${busy}</code> 个\n` +
+              `📈 连续偏高次数：<code>${overThresholdStreak}</code>\n` +
+              `📝 对比起点方式：${formatBaselineMode(configDB.data.baselineMode)}\n\n` +
+              `📦 <b>现在用了多少</b>\n` +
+              `• 程序内存：<code>${memory.heapUsed.toFixed(2)} MB</code>（上限 ${configDB.data.memoryThreshold}）\n` +
+              `• 总占用：<code>${memory.rss.toFixed(2)} MB</code>（上限 ${configDB.data.rssThreshold}）\n` +
+              `• 相对起点涨了：程序 <code>${formatMb(growth.heapGrowth)}</code> / 总 <code>${formatMb(growth.rssGrowth)}</code>（涨幅上限 ${configDB.data.runtimeGrowthThreshold} MB）\n\n` +
+              `💡 <b>建议</b>：${advice}\n\n` +
+              `帮助：<code>${mainPrefix}memory</code>`,
           ),
         });
       } else if (subCmd === "baseline") {
@@ -598,13 +634,15 @@ class HealthPlugin extends Plugin {
         if (action === "reset") {
           updateMemoryBaseline(configDB.data, getMemoryUsage());
           await configDB.write();
-          await msg.edit({ text: html("✅ 基线已重置") });
+          await msg.edit({ text: html("✅ 已把当前内存记为新的对比起点") });
         } else {
           await msg.edit({
             text: html(
-              `📏 Heap 基线 <code>${formatMb(configDB.data.baselineHeapUsed)}</code>\n` +
-                `RSS 基线 <code>${formatMb(configDB.data.baselineRss)}</code>\n` +
-                `方式：${formatBaselineMode(configDB.data.baselineMode)}`,
+              `📏 <b>对比起点（基线）</b>\n\n` +
+                `• 程序内存起点：<code>${formatMb(configDB.data.baselineHeapUsed)}</code>\n` +
+                `• 总占用起点：<code>${formatMb(configDB.data.baselineRss)}</code>\n` +
+                `• 记录方式：${formatBaselineMode(configDB.data.baselineMode)}\n\n` +
+                `重记：<code>${mainPrefix}memory reset</code>`,
             ),
           });
         }
