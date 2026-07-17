@@ -26,6 +26,10 @@ const mainPrefix = prefixes[0];
 const MAX_MESSAGE_LENGTH = 4000;
 const PLUGINS_INDEX_URL =
   "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox-Next-Plugins/main/plugins.json";
+const CUSTOM_SOURCE_CONFIG_PATH = path.join(
+  createDirectoryInAssets("tpm"),
+  "source.json"
+);
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 4;
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
@@ -43,6 +47,10 @@ interface PluginRecord {
 type Database = Record<string, PluginRecord>;
 type RemotePluginInfo = { url: string; desc?: string };
 type RemotePluginsIndex = Record<string, RemotePluginInfo>;
+
+interface CustomSourceConfig {
+  url: string;
+}
 
 const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
@@ -73,6 +81,85 @@ class EntityManager {
 
 function codeTag(value: string): string {
   return `<code>${htmlEscape(value)}</code>`;
+}
+
+function getCustomSourceConfigPath(): string {
+  try {
+    return path.join(createDirectoryInAssets("tpm"), "source.json");
+  } catch {
+    return CUSTOM_SOURCE_CONFIG_PATH;
+  }
+}
+
+async function getCustomSourceConfig(): Promise<CustomSourceConfig | null> {
+  try {
+    const cfgPath = getCustomSourceConfigPath();
+    if (!fs.existsSync(cfgPath)) return null;
+    const raw = fs.readFileSync(cfgPath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function setCustomSourceConfig(url: string): Promise<void> {
+  const cfgPath = getCustomSourceConfigPath();
+  fs.writeFileSync(cfgPath, JSON.stringify({ url }, null, 2));
+}
+
+async function clearCustomSourceConfig(): Promise<void> {
+  const cfgPath = getCustomSourceConfigPath();
+  if (fs.existsSync(cfgPath)) {
+    fs.unlinkSync(cfgPath);
+  }
+}
+
+function convertGithubToRawPluginUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "github.com") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        const [owner, repo, ...rest] = parts;
+        const branch = rest.length >= 1 && rest[0] !== "blob" && rest[0] !== "tree" ? rest[0] : "main";
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/plugins.json`;
+      }
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/** Fetch official + custom source index (custom overrides official). */
+async function getMergedRemotePluginsIndex(): Promise<RemotePluginsIndex> {
+  const merged: RemotePluginsIndex = {};
+
+  // Fetch official index first
+  try {
+    const officialRes = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
+    if (officialRes.status === 200 && officialRes.data && typeof officialRes.data === "object") {
+      Object.assign(merged, officialRes.data);
+    }
+  } catch (error: unknown) {
+    logger.info(`[TPM] 获取官方插件源失败: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // Merge custom source entries (override official)
+  const customSource = await getCustomSourceConfig();
+  if (customSource) {
+    const rawUrl = convertGithubToRawPluginUrl(customSource.url);
+    try {
+      const customRes = await fetchWithRetry<RemotePluginsIndex>(rawUrl);
+      if (customRes.status === 200 && customRes.data && typeof customRes.data === "object") {
+        Object.assign(merged, customRes.data);
+      }
+    } catch (error: unknown) {
+      logger.info(`[TPM] 自定义插件源获取失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return merged;
 }
 
 async function sendOrEditMessage(
@@ -267,10 +354,7 @@ async function rebuildPluginDb(db: Awaited<ReturnType<typeof getDatabase>>): Pro
   const localNames = listLocalPluginNames();
   let catalog: RemotePluginsIndex = {};
   try {
-    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
-    if (res.status === 200 && res.data && typeof res.data === "object") {
-      catalog = res.data;
-    }
+    catalog = await getMergedRemotePluginsIndex();
   } catch (error: unknown) {
     logger.error("[TPM] 获取远程插件目录失败，重建使用旧记录:", error);
     return 0;
@@ -404,69 +488,65 @@ async function fetchWithRetry<T>(
 }
 
 async function installRemotePlugin(plugin: string, msg: MessageContext) {
-  const [statusMsg, res] = await Promise.all([
+  const [statusMsg, catalog] = await Promise.all([
     sendOrEditMessage(msg, `正在安装插件 ${plugin}...`),
-    fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL),
+    getMergedRemotePluginsIndex(),
   ]);
-  if (res.status === 200) {
-    if (!res.data[plugin]) {
-      await sendOrEditMessage(statusMsg, `未找到插件 ${plugin} 的远程资源`);
-      return;
-    }
-    const pluginUrl = normalizeGithubUrl(res.data[plugin].url);
-    const response = await fetchWithRetry<string>(pluginUrl, {
-      responseType: "text",
-    });
-    if (response.status !== 200) {
-      await sendOrEditMessage(statusMsg, `无法下载插件 ${plugin}`);
-      return;
-    }
-    const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
-    const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
-
-    if (fs.existsSync(filePath)) {
-      const cacheDir = createDirectoryInTemp("plugin_backups");
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .slice(0, -5);
-      const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts.bak`);
-      fs.copyFileSync(filePath, backupPath);
-      logger.info(`[TPM] 旧插件已转移到缓存: ${backupPath}`);
-    }
-
-    if (fs.existsSync(oldBackupPath)) {
-      fs.unlinkSync(oldBackupPath);
-      logger.info(`[TPM] 已清理旧备份文件: ${oldBackupPath}`);
-    }
-
-    fs.writeFileSync(filePath, response.data);
-
-    try {
-      const db = await getDatabase();
-      db.data[plugin] = { ...res.data[plugin], _updatedAt: Date.now() };
-      await db.write();
-      logger.info(`[TPM] 已记录插件信息到数据库: ${plugin}`);
-    } catch (error: unknown) {
-      logger.error(`[TPM] 记录插件信息失败: ${error}`);
-    }
-
-    await reloadAndFinalize(statusMsg, `插件 ${plugin} 已安装并加载成功`);
-  } else {
-    await sendOrEditMessage(statusMsg, `无法获取远程插件库`);
+  if (!catalog[plugin]) {
+    await sendOrEditMessage(statusMsg, `未找到插件 ${plugin} 的远程资源`);
+    return;
   }
+  const pluginData = catalog[plugin];
+  if (!pluginData.url) {
+    await sendOrEditMessage(statusMsg, `插件 ${plugin} 未配置下载URL`);
+    return;
+  }
+  const pluginUrl = normalizeGithubUrl(pluginData.url);
+  const response = await fetchWithRetry<string>(pluginUrl, {
+    responseType: "text",
+  });
+  if (response.status !== 200) {
+    await sendOrEditMessage(statusMsg, `无法下载插件 ${plugin}`);
+    return;
+  }
+  const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+  const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+
+  if (fs.existsSync(filePath)) {
+    const cacheDir = createDirectoryInTemp("plugin_backups");
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, -5);
+    const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts.bak`);
+    fs.copyFileSync(filePath, backupPath);
+    logger.info(`[TPM] 旧插件已转移到缓存: ${backupPath}`);
+  }
+
+  if (fs.existsSync(oldBackupPath)) {
+    fs.unlinkSync(oldBackupPath);
+    logger.info(`[TPM] 已清理旧备份文件: ${oldBackupPath}`);
+  }
+
+  fs.writeFileSync(filePath, response.data);
+
+  try {
+    const db = await getDatabase();
+    db.data[plugin] = { ...pluginData, _updatedAt: Date.now() };
+    await db.write();
+    logger.info(`[TPM] 已记录插件信息到数据库: ${plugin}`);
+  } catch (error: unknown) {
+    logger.error(`[TPM] 记录插件信息失败: ${error}`);
+  }
+
+  await reloadAndFinalize(statusMsg, `插件 ${plugin} 已安装并加载成功`);
 }
 
 async function installAllPlugins(msg: MessageContext) {
   const statusMsg = await sendOrEditMessage(msg, "🔍 正在获取远程插件列表...");
   try {
-    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
-    if (res.status !== 200) {
-      await sendOrEditMessage(statusMsg, "❌ 无法获取远程插件库");
-      return;
-    }
-
-    const plugins = Object.keys(res.data);
+    const catalog = await getMergedRemotePluginsIndex();
+    const plugins = Object.keys(catalog);
     const totalPlugins = plugins.length;
     if (totalPlugins === 0) {
       await sendOrEditMessage(statusMsg, "📦 远程插件库为空");
@@ -490,7 +570,7 @@ async function installAllPlugins(msg: MessageContext) {
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${installedCount}\n❌ 失败: ${failedCount}`);
         }
 
-        const pluginData = res.data[plugin];
+        const pluginData = catalog[plugin];
         if (!pluginData || !pluginData.url) {
           failedCount++;
           failedPlugins.push(`${plugin} (无URL)`);
@@ -578,11 +658,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: MessageContext
   const statusMsg = await sendOrEditMessage(msg, `🔍 正在获取远程插件列表...`);
 
   try {
-    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
-    if (res.status !== 200) {
-      await sendOrEditMessage(statusMsg, "❌ 无法获取远程插件库");
-      return;
-    }
+    const catalog = await getMergedRemotePluginsIndex();
 
     let installedCount = 0;
     let failedCount = 0;
@@ -603,13 +679,13 @@ async function installMultiplePlugins(pluginNames: string[], msg: MessageContext
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${installedCount}\n❌ 失败: ${failedCount}`);
         }
 
-        if (!res.data[pluginName]) {
+        if (!catalog[pluginName]) {
           failedCount++;
           notFoundPlugins.push(pluginName);
           continue;
         }
 
-        const pluginData = res.data[pluginName];
+        const pluginData = catalog[pluginName];
         if (!pluginData.url) {
           failedCount++;
           failedPlugins.push(`${pluginName} (无URL)`);
@@ -1014,20 +1090,10 @@ async function search(msg: MessageContext) {
   const keyword = parts.length > 2 ? parts[2].toLowerCase() : "";
   
   try {
-    const [statusMsg, res] = await Promise.all([
+    const [statusMsg, remotePlugins] = await Promise.all([
       sendOrEditMessage(msg, keyword ? `🔍 正在搜索插件: ${keyword}` : "🔍 正在获取插件列表..."),
-      fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL, {
-        headers: {
-          "Cache-Control": "no-cache",
-          Pragma: "no-cache",
-        },
-      }),
+      getMergedRemotePluginsIndex(),
     ]);
-    if (res.status !== 200) {
-      await sendOrEditMessage(statusMsg, `❌ 无法获取远程插件库`);
-      return;
-    }
-    const remotePlugins = res.data;
     const pluginNames = Object.keys(remotePlugins);
 
     const localPlugins = new Set<string>();
@@ -1457,6 +1523,70 @@ export async function updateAllPlugins(
   }
 }
 
+async function handleSourceCommand(args: string[], msg: MessageContext): Promise<void> {
+  const subCmd = args[1];
+  
+  if (!subCmd || subCmd === "show" || subCmd === "info") {
+    const cfg = await getCustomSourceConfig();
+    if (cfg) {
+      await sendOrEditMessage(msg, `🗄️ <b>自定义插件源</b>\n\n${codeTag(cfg.url)}\n\n使用 <code>${mainPrefix}tpm source remove</code> 清除`);
+    } else {
+      await sendOrEditMessage(msg, `🗄️ <b>自定义插件源</b>\n\n未设置自定义插件源\n\n使用 <code>${mainPrefix}tpm source add &lt;仓库URL&gt;</code> 设置`);
+    }
+    return;
+  }
+  
+  if (subCmd === "add") {
+    const url = args[2];
+    if (!url) {
+      await sendOrEditMessage(msg, "❌ 请提供 GitHub 仓库地址\n如: <code>tpm source add https://github.com/xxx/xxx</code>");
+      return;
+    }
+    try {
+      new URL(url);
+    } catch {
+      await sendOrEditMessage(msg, "❌ URL 格式无效");
+      return;
+    }
+    await setCustomSourceConfig(url);
+    const statusMsg = await sendOrEditMessage(msg, "🔍 正在验证自定义插件源...");
+    try {
+      const rawUrl = convertGithubToRawPluginUrl(url);
+      const test = await fetchWithRetry(rawUrl, { timeout: 10000 });
+      if (test.status !== 200) {
+        await clearCustomSourceConfig();
+        await sendOrEditMessage(statusMsg, `❌ 自定义插件源验证失败（HTTP ${test.status}）\n请确保仓库包含 plugins.json`);
+        return;
+      }
+      const pluginCount = Object.keys(test.data || {}).length;
+      const repoLink = url.replace(/\/?$/, "");
+      await reloadAndFinalize(statusMsg,
+        `✅ <b>自定义插件源已设置</b>\n\n🔗 ${codeTag(repoLink)}\n📦 包含 ${pluginCount} 个插件\n\n💡 同名插件将优先使用自定义源版本`,
+      );
+    } catch (error: unknown) {
+      await clearCustomSourceConfig();
+      await sendOrEditMessage(statusMsg, `❌ 自定义插件源验证失败: ${error instanceof Error ? error.message : String(error)}\n请确认仓库可访问且包含 plugins.json`);
+    }
+    return;
+  }
+  
+  if (subCmd === "remove" || subCmd === "rm" || subCmd === "del" || subCmd === "delete" || subCmd === "clear") {
+    const cfg = await getCustomSourceConfig();
+    if (!cfg) {
+      await sendOrEditMessage(msg, "当前没有设置自定义插件源");
+      return;
+    }
+    await clearCustomSourceConfig();
+    await reloadAndFinalize(
+      await sendOrEditMessage(msg, "🗑️ 正在清除自定义插件源..."),
+      "✅ 自定义插件源已清除"
+    );
+    return;
+  }
+  
+  await sendOrEditMessage(msg, `❌ 未知 source 子命令: ${codeTag(subCmd)}\n\n用法:\n• <code>${mainPrefix}tpm source add &lt;url&gt;</code> - 设置\n• <code>${mainPrefix}tpm source remove</code> - 清除\n• <code>${mainPrefix}tpm source</code> - 查看状态`);
+}
+
 class TpmPlugin extends Plugin {
 
   description: string = `<b>📦 TeleBox-Next 插件管理器 (TPM)</b>
@@ -1481,7 +1611,12 @@ class TpmPlugin extends Plugin {
 • <code>${mainPrefix}tpm rm all</code> - 清空插件目录并刷新本地缓存
 
 <b>⬆️ 上传插件:</b>
-• <code>${mainPrefix}tpm upload [插件名]</code> (别名: <code>ul</code>) - 上传指定插件文件`;
+• <code>${mainPrefix}tpm upload [插件名]</code> (别名: <code>ul</code>) - 上传指定插件文件
+
+<b>🗄️ 自定义源:</b>
+• <code>${mainPrefix}tpm source add &lt;giturl&gt;</code> - 设置自定义插件源（1个）
+• <code>${mainPrefix}tpm source remove</code> - 清除自定义插件源
+• <code>${mainPrefix}tpm source</code> - 查看当前自定义源`;
 
   ignoreEdited: boolean = true;
 
@@ -1526,6 +1661,8 @@ class TpmPlugin extends Plugin {
         );
       } else if (cmd === "update" || cmd === "updateAll" || cmd === "ua") {
         await updateAllPlugins(msg);
+      } else if (cmd === "source") {
+        await handleSourceCommand(args, msg);
       } else {
         await sendOrEditMessage(msg, `❌ 未知命令: ${codeTag(cmd)}\n\n${this.description}`);
       }
