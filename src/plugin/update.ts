@@ -131,6 +131,69 @@ async function remotePackageJsonChanged(remote: string, branch: string): Promise
   }
 }
 
+/** Working tree has local modifications (tracked or untracked under git). */
+async function hasLocalGitDirt(): Promise<boolean> {
+  try {
+    const { stdout } = await gitExec(["status", "--porcelain"]);
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Auto-update / 强制更新：对齐远程 tip。
+ * 根因：VPS 上常见本地改动导致 `git pull` 拒绝合并，自动更新看起来“坏了”。
+ * 自动路径一律 reset --hard；手动路径仅在 -f / package.json 变更 / 本地脏时强制。
+ */
+async function hardResetToRemote(remote: string, branch: string): Promise<void> {
+  const full = `${remote}/${branch}`;
+  await gitExec(["reset", "--hard", full]);
+  // 清掉会挡住后续 pull/reset 的未跟踪冲突文件（不删 assets/config/session）
+  try {
+    await gitExec(["clean", "-fd", "--exclude=assets", "--exclude=config.json", "--exclude=session.db", "--exclude=plugins", "--exclude=.telebox", "--exclude=node_modules"]);
+  } catch {
+    /* clean 失败不阻断 */
+  }
+}
+
+/** Serialize auto-update runs (GitHubBot 可能连发多条). */
+let autoUpdateChain: Promise<void> = Promise.resolve();
+
+function runAutoUpdateExclusive(label: string, fn: () => Promise<void>): Promise<void> {
+  const prev = autoUpdateChain;
+  const task = prev
+    .catch(() => {
+      /* previous failure must not block the queue */
+    })
+    .then(async () => {
+      logger.info(`[auto-update] ${label}: start`);
+      await fn();
+    });
+  // chain always settles so the next waiter is not stuck on rejection
+  autoUpdateChain = task.then(
+    () => undefined,
+    () => undefined,
+  );
+  return task;
+}
+
+/** GitHubBot 通知正文：text 优先，兼容 caption / raw. */
+function getGithubNoticeText(msg: MessageContext): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const anyMsg = msg as any;
+  const candidates = [
+    msg.text,
+    anyMsg.caption,
+    anyMsg.message,
+    anyMsg.raw?.message,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c;
+  }
+  return "";
+}
+
 // ── Manual update (existing) ───────────────────────────────────────────
 async function update(force = false, msg: MessageContext) {
   await msg.edit({ text: "🚀 正在更新项目..." });
@@ -148,19 +211,29 @@ async function update(force = false, msg: MessageContext) {
     await gitExec(["fetch", "--all"]);
     await msg.edit({ text: "🔄 正在拉取最新代码..." });
 
-    // package.json 变更时自动走 -f：硬重置到远程，避免依赖声明冲突/半更新
+    // package.json 变更 / 本地脏工作区 → 自动走 -f，避免 pull 因冲突静默失败
     if (!force && (await remotePackageJsonChanged(remote, branch))) {
       force = true;
       logger.info("📦 检测到 package.json 变更，自动切换为强制更新（等同 .update -f）");
       await msg.edit({ text: "📦 检测到 package.json 变更，自动强制更新..." });
+    } else if (!force && (await hasLocalGitDirt())) {
+      force = true;
+      logger.info("📦 检测到本地未提交改动，自动切换为强制更新（等同 .update -f）");
+      await msg.edit({ text: "📦 检测到本地改动，自动强制更新..." });
     }
 
     if (force) {
       logger.info(`⚠️ 强制回滚到 ${fullBranch}...`);
-      await gitExec(["reset", "--hard", fullBranch]);
+      await hardResetToRemote(remote, branch);
       await msg.edit({ text: "🔄 强制更新中..." });
     } else {
-      await gitExec(["pull", remote, branch, "--no-rebase"]);
+      try {
+        await gitExec(["pull", remote, branch, "--no-rebase"]);
+      } catch (pullErr: unknown) {
+        // pull 冲突时降级 hard reset，避免“更新坏了”卡死
+        logger.warn("[update] pull 失败，降级 reset --hard:", getErrorMessage(pullErr));
+        await hardResetToRemote(remote, branch);
+      }
       await msg.edit({ text: "🔄 正在合并最新代码..." });
     }
 
@@ -440,42 +513,44 @@ async function reactSuccessOnGithubMsg(
 
 async function autoUpdateMainRepo(githubMsg: MessageContext): Promise<void> {
   // Silent success: no status replies. Errors only.
-  try {
-    const branchInfo = await findMainBranch();
-    if (!branchInfo) {
-      throw new Error("未找到可用的远程分支");
-    }
-    const { remote, branch } = branchInfo;
-
-    await gitExec(["fetch", "--all"]);
-    if (await remotePackageJsonChanged(remote, branch)) {
-      logger.info("[auto-update] 📦 package.json 变更，自动 reset --hard（等同 update -f）");
-      await gitExec(["reset", "--hard", `${remote}/${branch}`]);
-    } else {
-      await gitExec(["pull", remote, branch, "--no-rebase"]);
-    }
-
-    // Pull succeeded → update is on disk. But the process is about to restart
-    // (npm install blocks the event loop, then process.exit). Do NOT react now:
-    // ✅ should mean "已更新并完整重启上线", matching what the user sees after a
-    // manual update. Persist the intent; flushPendingReactions() re-applies it
-    // once the NEW runtime is fully online (see runtimeManager startup).
-    // MUST use normalizeChatId — never String(peer object).
-    const chatId = normalizeChatId(githubMsg);
-    if (chatId && githubMsg.id != null) {
-      queueReaction(chatId, githubMsg.id);
-    }
-
-    npm_install_project_dependencies();
-
-    await executeAutoExit();
-  } catch (error: unknown) {
-    const errDetail = getErrorMessage(error) || String(error);
-    logger.error("[auto-update] 主仓库更新失败:", errDetail);
+  // 自动路径一律 hard reset：VPS 本地脏文件是 pull 失败的首要根因。
+  return runAutoUpdateExclusive("main", async () => {
     try {
-      await githubMsg.replyText(`❌ 自动更新失败：${errDetail}`);
-    } catch (_) {}
-  }
+      const branchInfo = await findMainBranch();
+      if (!branchInfo) {
+        throw new Error("未找到可用的远程分支");
+      }
+      const { remote, branch } = branchInfo;
+
+      await gitExec(["fetch", "--all"]);
+      logger.info(
+        `[auto-update] 对齐 ${remote}/${branch}` +
+          ((await remotePackageJsonChanged(remote, branch))
+            ? "（含 package.json 变更）"
+            : (await hasLocalGitDirt())
+              ? "（含本地改动）"
+              : ""),
+      );
+      await hardResetToRemote(remote, branch);
+
+      // Reset succeeded → update is on disk. Process will restart after npm install.
+      // React only after NEW runtime is online (flushPendingReactions).
+      const chatId = normalizeChatId(githubMsg);
+      if (chatId && githubMsg.id != null) {
+        queueReaction(chatId, githubMsg.id);
+      }
+
+      npm_install_project_dependencies();
+
+      await executeAutoExit();
+    } catch (error: unknown) {
+      const errDetail = getErrorMessage(error) || String(error);
+      logger.error("[auto-update] 主仓库更新失败:", errDetail);
+      try {
+        await githubMsg.replyText(`❌ 自动更新失败：${errDetail}`);
+      } catch (_) {}
+    }
+  });
 }
 
 async function executeAutoExit(): Promise<void> {
@@ -486,27 +561,30 @@ async function executeAutoExit(): Promise<void> {
 // ── Auto-update for plugin repos ───────────────────────────────────────
 async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
   // Capture ids BEFORE updateAllPlugins → silent loadPlugins() → reloadRuntime().
-  // Reaction still runs AFTER the update finishes.
   const chatId = normalizeChatId(githubMsg);
   const msgId = githubMsg.id;
 
-  try {
-    const result = await updateAllPlugins(githubMsg, { silent: true });
+  return runAutoUpdateExclusive("plugins", async () => {
+    try {
+      const result = await updateAllPlugins(githubMsg, { silent: true });
 
-    if (result.failedCount === 0) {
-      await reactSuccessOnGithubMsg(githubMsg, { chatId, msgId });
-      return;
+      if (result.failedCount === 0) {
+        await reactSuccessOnGithubMsg(githubMsg, { chatId, msgId });
+        return;
+      }
+      try {
+        await githubMsg.replyText(
+          `❌ 插件自动更新失败：${result.failedCount} 个插件更新失败`,
+        );
+      } catch (_) {}
+    } catch (error: unknown) {
+      const errDetail = getErrorMessage(error) || String(error);
+      logger.error("[auto-update] 插件更新异常:", errDetail);
+      try {
+        await githubMsg.replyText(`❌ 插件自动更新失败：${errDetail}`);
+      } catch (_) {}
     }
-    try {
-      await githubMsg.replyText(`❌ 插件自动更新失败：${result.failedCount} 个插件更新失败`);
-    } catch (_) {}
-  } catch (error: unknown) {
-    const errDetail = getErrorMessage(error) || String(error);
-    logger.error("[auto-update] 插件更新异常:", errDetail);
-    try {
-      await githubMsg.replyText(`❌ 插件自动更新失败：${errDetail}`);
-    } catch (_) {}
-  }
+  });
 }
 
 // ── GitHubBot message parsing ──────────────────────────────────────────
@@ -520,11 +598,12 @@ const GITHUB_BOT_USERNAME = "githubbot";
 // Next edition only reacts to Next repos (not TeleBox / TeleBox-Plugins alone).
 // Accept TeleBoxOrg / TeleBoxLabs / bare names.
 // GitHubBot: "1 new commit to …" / "2 new commits to …" (singular or plural)
+// 兼容：`Repo:main` / `Repo: main` / markdown `[Org/Repo:main]` / 少量实体夹杂
 const COMMIT_NOTICE_PATTERN = /\bnew\s+commits?\b/i;
 const MAIN_REPO_PATTERN =
-  /\bnew\s+commits?\b[\s\S]*?\bto\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next)\s*:\s*main\b/i;
+  /\bnew\s+commits?\b[\s\S]*?\bto\s+\[?(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next)\]?(?:\s*:\s*|\/)main\b/i;
 const PLUGIN_REPO_PATTERN =
-  /\bnew\s+commits?\b[\s\S]*?\bto\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next-Plugins|TeleBox-Next_Plugins|TeleBox_M_Plugins)\s*:\s*main\b/i;
+  /\bnew\s+commits?\b[\s\S]*?\bto\s+\[?(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next-Plugins|TeleBox-Next_Plugins|TeleBox_M_Plugins)\]?(?:\s*:\s*|\/)main\b/i;
 
 function normalizeChatId(msg: MessageContext): string {
   const id = msg.chat?.id;
@@ -593,7 +672,7 @@ class UpdatePlugin extends Plugin {
 
     if (!isGitHubBot(msg)) return;
 
-    const text = msg.text || "";
+    const text = getGithubNoticeText(msg);
     if (!text || !COMMIT_NOTICE_PATTERN.test(text)) return;
 
     const chatId = normalizeChatId(msg);
@@ -603,6 +682,10 @@ class UpdatePlugin extends Plugin {
     } else if (MAIN_REPO_PATTERN.test(text)) {
       logger.info(`[auto-update] chat=${chatId || "?"} 主仓库提交 → silent update`);
       await autoUpdateMainRepo(msg);
+    } else {
+      logger.debug(
+        `[auto-update] chat=${chatId || "?"} GitHubBot 通知未匹配 Next 仓库: ${text.slice(0, 120)}`,
+      );
     }
   };
 }

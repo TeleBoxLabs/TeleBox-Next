@@ -171,11 +171,43 @@ export async function createMtcuteClient(): Promise<TelegramClient> {
 }
 
 /**
- * Gracefully tear down an mtcute client. mtcute exposes `destroy()` (Node layer)
- * which closes the connection and the underlying storage.
+ * Gracefully tear down an mtcute client.
+ *
+ * 根因（生产 error log）:
+ *   destroy() 置 #destroyed=true 后，UpdatesManager._loop 仍可能在跑
+ *   `_fetchDifference` → client.call → "Client is destroyed" 未捕获 rejection。
+ * 顺序：先 stopLoop，再 destroy，压住竞态。
  */
 export async function destroyMtcuteClient(client: TelegramClient): Promise<void> {
-  await client.destroy();
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyClient = client as any;
+    const updates = anyClient.updates ?? anyClient._updates ?? anyClient.mt?.updates;
+    if (updates && typeof updates.stopLoop === "function") {
+      try {
+        updates.stopLoop();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (typeof anyClient.disconnect === "function") {
+      try {
+        await anyClient.disconnect();
+      } catch {
+        /* ignore — destroy will close remaining resources */
+      }
+    }
+  } catch {
+    /* ignore pre-destroy best-effort cleanup */
+  }
+  try {
+    await client.destroy();
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/Client is destroyed|already destroyed|destroyed/i.test(msg)) {
+      throw e;
+    }
+  }
 }
 
 export { SESSION_DB_PATH };

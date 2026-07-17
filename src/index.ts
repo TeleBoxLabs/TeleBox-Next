@@ -53,13 +53,28 @@ if (httpProxy || httpsProxy) {
 // unhandled rejection is too aggressive for a production bot with many plugins
 // where a single missing .catch() would crash the entire process. PM2's own
 // restart strategy handles actual fatal crashes.
+function isBenignClientDestroyed(reason: unknown): boolean {
+  const message =
+    reason instanceof Error ? reason.message : String(reason ?? "");
+  // mtcute UpdatesManager 在 client.destroy 竞态下的已知噪音，不应标 FATAL
+  return /Client is destroyed/i.test(message);
+}
+
 process.on("unhandledRejection", (reason: unknown) => {
   const message =
     reason instanceof Error ? reason.stack || reason.message : String(reason);
+  if (isBenignClientDestroyed(reason)) {
+    logger.warn(`[RUNTIME] Ignored post-destroy rejection: ${message}`);
+    return;
+  }
   logger.error(`[FATAL] Unhandled promise rejection: ${message}`);
 });
 
 process.on("uncaughtException", (error: Error) => {
+  if (isBenignClientDestroyed(error)) {
+    logger.warn(`[RUNTIME] Ignored post-destroy exception: ${error.stack || error.message}`);
+    return;
+  }
   logger.error(`[FATAL] Uncaught exception: ${error.stack || error.message}`);
 });
 
