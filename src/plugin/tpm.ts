@@ -237,6 +237,76 @@ async function sendLongMessage(
   }
 }
 
+
+/** Local plugin .ts basenames under plugins/ (exclude backups / types). */
+function listLocalPluginNames(): string[] {
+  try {
+    if (!fs.existsSync(PLUGIN_PATH)) return [];
+    return fs
+      .readdirSync(PLUGIN_PATH)
+      .filter(
+        (f) =>
+          f.endsWith(".ts") &&
+          !f.includes("backup") &&
+          !f.endsWith(".d.ts") &&
+          !f.startsWith("_"),
+      )
+      .map((f) => f.replace(/\.ts$/, ""));
+  } catch (err: unknown) {
+    logger.error("[TPM] 读取本地插件目录失败:", err);
+    return [];
+  }
+}
+
+/**
+ * If tpm plugins.json is empty but plugins/*.ts exist (common after switch /
+ * fresh assets dir), rebuild records from the remote catalog for matching names.
+ * Returns number of records written.
+ */
+async function ensureInstalledPluginDb(db: Awaited<ReturnType<typeof getDatabase>>): Promise<number> {
+  const existing = Object.keys(db.data || {});
+  if (existing.length > 0) return 0;
+
+  const localNames = listLocalPluginNames();
+  if (localNames.length === 0) return 0;
+
+  logger.info(
+    `[TPM] 安装记录为空，尝试从远程目录重建（本地 ${localNames.length} 个插件文件）…`,
+  );
+
+  let catalog: RemotePluginsIndex = {};
+  try {
+    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
+    if (res.status === 200 && res.data && typeof res.data === "object") {
+      catalog = res.data;
+    }
+  } catch (error: unknown) {
+    logger.error("[TPM] 获取远程插件目录失败，无法重建安装记录:", error);
+    return 0;
+  }
+
+  let written = 0;
+  const now = Date.now();
+  for (const name of localNames) {
+    const entry = catalog[name];
+    if (!entry?.url) continue;
+    db.data[name] = {
+      url: entry.url,
+      desc: entry.desc,
+      _updatedAt: now,
+    };
+    written++;
+  }
+
+  if (written > 0) {
+    await db.write();
+    logger.info(`[TPM] 已从远程目录重建 ${written} 条安装记录`);
+  } else {
+    logger.info("[TPM] 远程目录中无匹配项，安装记录仍为空");
+  }
+  return written;
+}
+
 async function getDatabase() {
   const filePath = path.join(createDirectoryInAssets("tpm"), "plugins.json");
   const db = await JSONFilePreset<Database>(filePath, {});
@@ -1109,6 +1179,7 @@ async function showPluginRecords(msg: MessageContext, verbose?: boolean) {
       sendOrEditMessage(msg, "📚 正在读取插件数据..."),
       getDatabase(),
     ]);
+    await ensureInstalledPluginDb(db);
     const dbNames = Object.keys(db.data);
 
     let filePlugins: string[] = [];
@@ -1253,11 +1324,17 @@ export async function updateAllPlugins(
   
   try {
     const db = await getDatabase();
+    await ensureInstalledPluginDb(db);
     const dbPlugins = Object.keys(db.data);
 
     if (dbPlugins.length === 0) {
       if (!silent) {
-        await sendOrEditMessage(statusMsg, "📦 数据库中没有已安装的插件记录");
+        await sendOrEditMessage(
+          statusMsg,
+          "📦 没有可更新的插件记录\n\n" +
+            "本地 plugins 目录为空，或远程目录中找不到对应插件。\n" +
+            `可用 <code>${mainPrefix}tpm install &lt;插件名&gt;</code> 安装后再更新。`,
+        );
       }
       return { failedCount: 0, statusPeerId: statusMsg.chat?.id, statusMsgId: statusMsg.id };
     }
