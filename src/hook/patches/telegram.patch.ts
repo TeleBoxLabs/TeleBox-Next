@@ -103,6 +103,11 @@ function patchEditParams<T extends { text?: InputText; media?: unknown }>(
   if (typeof next.text === "string") {
     next.text = coerceHtmlInputText(next.text) as InputText;
   }
+  // Classic-compat: plugins often pass linkPreview:false; mtcute uses disableWebPreview
+  if ((next as { linkPreview?: boolean }).linkPreview === false) {
+    (next as { disableWebPreview?: boolean }).disableWebPreview = true;
+    delete (next as { linkPreview?: boolean }).linkPreview;
+  }
   // edit with media.caption
   if (
     next.media &&
