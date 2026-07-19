@@ -50,6 +50,10 @@ pnpm-debug.log*
 src/**/*.js
 src/**/*.js.map
 
+# Temp / dev artifacts
+tmp-*
+*.deployed
+
 # Nested dual-edition layout (switch runtime peers under runtime home)
 /telebox-classic/
 /telebox-next/
