@@ -385,7 +385,7 @@ async function editMsgSafe(m: MessageContext | undefined, text: string): Promise
 // the manual-update "已完成" summary.
 //
 // Root-cause notes (from production logs):
-// 1) Persist normalizeChatId(msg) only (numeric -100… / user id), never
+// 1) Persist chat ID as number (mtcute resolvePeer requires number, not string)
 //    String(peer object) which becomes "[object Object]".
 // 2) Prefer ❤ (API form of ❤️); fall back to 👍 if the pack disallows it.
 const PENDING_REACTION_FILE = path.join(os.homedir(), ".telebox", "pending_reactions.json");
@@ -393,14 +393,15 @@ const PENDING_REACTION_FILE = path.join(os.homedir(), ".telebox", "pending_react
 const SUCCESS_REACTION_EMOJIS = ["❤", "❤️", "👍"] as const;
 
 interface PendingReaction {
-  chatId: string;
+  chatId: number;
   msgId: number;
   queuedAt: number;
 }
 
-function isUsableChatId(chatId: string): boolean {
-  if (!chatId) return false;
-  if (chatId === "[object Object]" || chatId === "undefined" || chatId === "null") return false;
+function isUsableChatId(chatId: string | number): boolean {
+  if (chatId == null || chatId === 0 || chatId === "") return false;
+  const s = String(chatId);
+  if (s === "[object Object]" || s === "undefined" || s === "null") return false;
   return true;
 }
 
@@ -409,7 +410,18 @@ function loadPendingReactions(): PendingReaction[] {
     if (!fs.existsSync(PENDING_REACTION_FILE)) return [];
     const raw = JSON.parse(fs.readFileSync(PENDING_REACTION_FILE, "utf8"));
     if (!Array.isArray(raw)) return [];
-    return (raw as PendingReaction[]).filter((x) => isUsableChatId(String(x?.chatId ?? "")));
+    const out: PendingReaction[] = [];
+    for (const x of raw) {
+      if (!x || typeof x !== "object") continue;
+      // Backward compat: old JSON used string chatIds (before number fix).
+      const cid = typeof x.chatId === "string" && /^-?\d+$/.test(String(x.chatId))
+        ? Number(x.chatId)
+        : Number(x.chatId ?? 0);
+      const mid = Number(x.msgId ?? 0);
+      if (!isUsableChatId(cid) || !mid) continue;
+      out.push({ chatId: cid, msgId: mid, queuedAt: Number(x.queuedAt ?? 0) });
+    }
+    return out;
   } catch {
     return [];
   }
@@ -424,7 +436,7 @@ function savePendingReactions(items: PendingReaction[]): void {
   }
 }
 
-function queueReaction(chatId: string, msgId: number): void {
+function queueReaction(chatId: number, msgId: number): void {
   if (!isUsableChatId(chatId) || !msgId) return;
   const items = loadPendingReactions().filter((x) => !(x.chatId === chatId && x.msgId === msgId));
   items.push({ chatId, msgId, queuedAt: Date.now() });
@@ -438,13 +450,23 @@ function isReactionInvalidError(err: unknown): boolean {
 }
 
 /** Send a success reaction with emoji fallback for restricted groups. */
+/** Ensure chatId is a number for mtcute resolvePeer (string → username lookup, fails). */
+function toPeerId(chatId: string | number): number | string {
+  if (typeof chatId === "number") return chatId;
+  // Non-numeric strings (e.g. usernames) pass through; numeric strings → number
+  if (/^-?\d+$/.test(chatId)) return Number(chatId);
+  return chatId;
+}
+
+/** Send a success reaction with emoji fallback for restricted groups. */
 async function sendSuccessReaction(chatId: string | number, msgId: number): Promise<string> {
+  const peerId = toPeerId(chatId);
   const client = await getGlobalClient();
   let lastErr: unknown;
   for (const emoji of SUCCESS_REACTION_EMOJIS) {
     try {
       await client.sendReaction({
-        chatId,
+        chatId: peerId,
         message: msgId,
         emoji,
       });
@@ -491,9 +513,9 @@ export async function flushPendingReactions(): Promise<void> {
  */
 async function reactSuccessOnGithubMsg(
   githubMsg: MessageContext,
-  prefetched?: { chatId?: string; msgId?: number },
+  prefetched?: { chatId?: number; msgId?: number },
 ): Promise<void> {
-  const chatId = prefetched?.chatId || normalizeChatId(githubMsg);
+  const chatId = prefetched?.chatId ?? normalizeChatId(githubMsg);
   const msgId = prefetched?.msgId ?? githubMsg.id;
   if (!isUsableChatId(chatId) || msgId == null) return;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -536,7 +558,7 @@ async function autoUpdateMainRepo(githubMsg: MessageContext): Promise<void> {
       // Reset succeeded → update is on disk. Process will restart after npm install.
       // React only after NEW runtime is online (flushPendingReactions).
       const chatId = normalizeChatId(githubMsg);
-      if (chatId && githubMsg.id != null) {
+      if (chatId !== 0 && githubMsg.id != null) {
         queueReaction(chatId, githubMsg.id);
       }
 
@@ -605,13 +627,13 @@ const MAIN_REPO_PATTERN =
 const PLUGIN_REPO_PATTERN =
   /\bnew\s+commits?\b[\s\S]*?\bto\s+\[?(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next-Plugins|TeleBox-Next_Plugins|TeleBox_M_Plugins)\]?(?:\s*:\s*|\/)main\b/i;
 
-function normalizeChatId(msg: MessageContext): string {
+function normalizeChatId(msg: MessageContext): number {
   const id = msg.chat?.id;
-  if (id != null) return String(id);
+  if (id != null) return Number(id);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyMsg = msg as any;
-  if (anyMsg.chatId != null) return String(anyMsg.chatId);
-  return "";
+  if (anyMsg.chatId != null) return Number(anyMsg.chatId);
+  return 0;
 }
 
 function isGitHubBot(msg: MessageContext): boolean {
