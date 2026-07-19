@@ -514,14 +514,18 @@ export async function flushPendingReactions(): Promise<void> {
  */
 async function reactSuccessOnGithubMsg(
   githubMsg: MessageContext,
-  prefetched?: { chatId?: number; msgId?: number },
+  prefetched?: { chatId?: number; msgId?: number; entity?: unknown },
 ): Promise<void> {
   const chatId = prefetched?.chatId ?? normalizeChatId(githubMsg);
   const msgId = prefetched?.msgId ?? githubMsg.id;
   if (!isUsableChatId(chatId) || msgId == null) return;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const used = await sendSuccessReaction(chatId, msgId);
+      // Pre-captured entity takes priority (from getChat/peerId before reloadRuntime)
+      const target = prefetched?.entity ?? chatId;
+      // If entity looks like a peer object (not a number), pass it directly;
+      // mtcute sendReaction accepts InputPeerLike = number | string | Peer
+      const used = await sendSuccessReaction(target as string | number, msgId);
       logger.info(`[auto-update] reaction ${used} on msg ${msgId}`);
       return;
     } catch (e: unknown) {
@@ -584,15 +588,33 @@ async function executeAutoExit(): Promise<void> {
 // ── Auto-update for plugin repos ───────────────────────────────────────
 async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
   // Capture ids BEFORE updateAllPlugins → silent loadPlugins() → reloadRuntime().
+  // Also pre-resolve the InputPeer (like Classic) — after reloadRuntime the
+  // old message object is stale and getInputChat() would fail.
   const chatId = normalizeChatId(githubMsg);
   const msgId = githubMsg.id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let entity: any;
+  try {
+    // mtcute's MessageContext may have getChat for peer resolution
+    entity = await (githubMsg as any).getChat?.();
+  } catch (_) { /* getChat may not exist or throw */ }
+  if (!entity) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyMsg = githubMsg as any;
+    entity = anyMsg.peerId ?? anyMsg.peer;
+  }
+  // Fallback to chatId number if entity resolution failed
+  if (!entity && isUsableChatId(chatId)) {
+    entity = chatId;
+  }
 
   return runAutoUpdateExclusive("plugins", async () => {
     try {
       const result = await updateAllPlugins(githubMsg, { silent: true });
 
       if (result.failedCount === 0) {
-        await reactSuccessOnGithubMsg(githubMsg, { chatId, msgId });
+        // Use pre-captured entity for reaction (tolerates stale msg after reloadRuntime)
+        await reactSuccessOnGithubMsg(githubMsg, { chatId, msgId, entity });
         return;
       }
       try {
@@ -635,11 +657,27 @@ const PLUGIN_REPO_REVERSE_PATTERN =
   /\[?(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next-Plugins|TeleBox-Next_Plugins|TeleBox_M_Plugins)\s*:\s*main\]?[\s\S]*?\bnew\s+commits?\b/i;
 
 function normalizeChatId(msg: MessageContext): number {
-  const id = msg.chat?.id;
-  if (id != null) return Number(id);
+  // Primary: msg.chat.id (mtcute PopulatedPeers)
+  const chatId = msg.chat?.id;
+  if (chatId != null) return Number(chatId);
+  // Fallback 1: raw rawPeer / peer fields (channel posts with incomplete peers)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyMsg = msg as any;
+  // peerId.channelId for channel posts — mtcute may store it at raw level
+  const rawPeer = anyMsg.raw?.peerId ?? anyMsg.peerId ?? anyMsg.raw?.peer ?? anyMsg.peer;
+  if (rawPeer) {
+    if (rawPeer.channelId != null) return Number(`-100${rawPeer.channelId}`);
+    if (rawPeer.userId != null) return Number(rawPeer.userId);
+    if (rawPeer.chatId != null) {
+      const id = String(rawPeer.chatId);
+      return Number(id.startsWith("-") ? id : `-${id}`);
+    }
+  }
+  // Fallback 2: flat chatId property
   if (anyMsg.chatId != null) return Number(anyMsg.chatId);
+  // Fallback 3: sender.id for PM (rare: auto-update in PM)
+  if (anyMsg.sender?.id != null) return Number(anyMsg.sender.id);
+  logger.warn("[auto-update] normalizeChatId returned 0 — msg may have incomplete peer info");
   return 0;
 }
 
@@ -700,29 +738,39 @@ class UpdatePlugin extends Plugin {
 
   listenMessageHandler = async (msg: MessageContext): Promise<void> => {
     const state = loadAutoUpdateState();
-    if (!state.enabled) return;
 
+    // Fast path: not a GitHubBot commit — skip all processing
     if (!isGitHubBot(msg)) return;
 
     const text = getGithubNoticeText(msg);
-    if (!text) return;
-    if (!COMMIT_NOTICE_PATTERN.test(text)) {
-      // GitHubBot may send non-commit messages (e.g. CI results); skip silently
-      return;
-    }
-    logger.info(`[auto-update] GitHubBot 提交通知: ${text.slice(0, 200)}`);
+    if (!text || !COMMIT_NOTICE_PATTERN.test(text)) return;
 
+    // At this point we know: it's a GitHubBot commit notification.
+    // Log at info level so users can verify the message IS reaching the bot,
+    // even when auto-update is disabled.
     const chatId = normalizeChatId(msg);
-    // 标准格式优先，再试反向 markdown 格式
-    if (PLUGIN_REPO_PATTERN.test(text) || PLUGIN_REPO_REVERSE_PATTERN.test(text)) {
-      logger.info(`[auto-update] chat=${chatId || "?"} 插件仓库提交 → silent update`);
-      await autoUpdatePlugins(msg);
-    } else if (MAIN_REPO_PATTERN.test(text) || MAIN_REPO_REVERSE_PATTERN.test(text)) {
-      logger.info(`[auto-update] chat=${chatId || "?"} 主仓库提交 → silent update`);
-      await autoUpdateMainRepo(msg);
-    } else {
+    const isMain = MAIN_REPO_PATTERN.test(text) || MAIN_REPO_REVERSE_PATTERN.test(text);
+    const isPlugin =
+      PLUGIN_REPO_PATTERN.test(text) || PLUGIN_REPO_REVERSE_PATTERN.test(text);
+    const targetRepo = isMain ? "主仓库" : isPlugin ? "插件仓库" : "未匹配";
+
+    if (state.enabled) {
       logger.info(
-        `[auto-update] chat=${chatId || "?"} GitHubBot 通知未匹配 Next 仓库: ${text.slice(0, 120)}`,
+        `[auto-update] GitHubBot 提交 → ${targetRepo} | chat=${chatId || "?"} | ${text.slice(0, 120)}`,
+      );
+      if (isPlugin) {
+        await autoUpdatePlugins(msg);
+      } else if (isMain) {
+        await autoUpdateMainRepo(msg);
+      } else {
+        logger.info(
+          `[auto-update] chat=${chatId || "?"} 未匹配 Next 仓库: ${text.slice(0, 120)}`,
+        );
+      }
+    } else {
+      // Auto-update disabled — log at info so user knows message arrived
+      logger.info(
+        `[auto-update] ⏸️ 已关闭 — 收到 GitHubBot 提交 (${targetRepo}) chat=${chatId || "?"} | ${text.slice(0, 100)}`,
       );
     }
   };
