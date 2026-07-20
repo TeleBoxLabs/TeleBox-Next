@@ -101,23 +101,41 @@ function getFloodWaitSeconds(error: unknown): number | null {
 }
 
 /**
- * 安全获取实体，确保包含正确的access hash
+ * mtcute resolvePeer 要求数字 ID 必须是 number/bigint；
+ * 数字字符串（含 -100... 标记频道 ID）会被当成 username 解析而失败。
+ */
+function coercePeerId(entityId: string | number | InputPeerLike): string | number | InputPeerLike {
+  if (typeof entityId === "string") {
+    const trimmed = entityId.trim();
+    if (/^-?\d+$/.test(trimmed)) {
+      // marked channel ids 在 JS 安全整数范围内（约 15 位）
+      const asNum = Number(trimmed);
+      if (Number.isSafeInteger(asNum)) {
+        return asNum;
+      }
+    }
+  }
+  return entityId;
+}
+
+/**
+ * 安全获取实体，确保包含正确的 access hash。
  * @param client - Telegram客户端实例
- * @param entityId - 实体ID (可以是数字ID、用户名或实体对象)
- * @returns 返回完整的实体对象
+ * @param entityId - 实体ID (数字ID、用户名或实体对象；数字字符串会自动转为 number)
  */
 export async function getEntityWithHash(
   client: TelegramClient,
   entityId: string | number | InputPeerLike
 ): Promise<InputPeerLike> {
+  const peerId = coercePeerId(entityId);
   try {
     // 如果已经是对象，直接返回
-    if (typeof entityId === "object") {
-      return entityId;
+    if (typeof peerId === "object") {
+      return peerId;
     }
 
     // 使用 resolvePeer 获取完整 InputPeer
-    const entity = await client.resolvePeer(entityId);
+    const entity = await client.resolvePeer(peerId);
     return entity;
   } catch (error: unknown) {
     logger.error(`[EntityHelper] 获取实体失败: ${entityId}`, error);
