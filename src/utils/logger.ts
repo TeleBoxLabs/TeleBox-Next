@@ -410,7 +410,10 @@ class Logger {
     // teleproto 1.225.x: "fetchChannelDifference 1680975844: ..."
     m = clean.match(/fetchChannelDifference (\d+)/);
     if (m) return m[1];
-    // teleproto 1.225.x alt: "error fetching difference for 1680975844: ..."
+    // mtcute: "getChannelDifference (cid = 3061608291) returned channelDifferenceTooLong..."
+    m = clean.match(/cid\s*=\s*(\d+)/);
+    if (m) return m[1];
+    // teleproto 1.225.x alt / mtcute: "error fetching difference for 1680975844: ..."
     m = clean.match(/fetching difference for (\d+)/);
     if (m) return m[1];
     // "Channel 1680975844 difference too long" (after ANSI strip)

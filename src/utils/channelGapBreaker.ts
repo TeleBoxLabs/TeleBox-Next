@@ -1,19 +1,21 @@
 /**
  * Channel gap recovery circuit breaker.
  *
- * When _recoverChannelGap (in teleproto) encounters persistent PTS desync
- * errors (PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED) for a
- * channel, it retries indefinitely — wasting API calls and log bandwidth.
+ * When channel gap recovery encounters persistent PTS desync errors
+ * (PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED / channelDifferenceTooLong)
+ * it may retry indefinitely — wasting API calls and dropping live messages.
  *
  * This module hooks into the Logger's existing downgrade interceptor and
  * tracks per-channel failure counts. Once a channel exceeds the failure
  * threshold within the tracking window, we clear its PTS state from the
- * TelegramClient so that subsequent update dispatches treat new updates
- * as "apply immediately" instead of detecting a gap and triggering
- * another round of hopeless GetChannelDifference calls.
+ * TelegramClient so that subsequent update dispatches can re-seed pts
+ * instead of looping on a hopeless GetChannelDifference.
  *
- * Importantly, this only touches TeleBox-Next code — the teleproto library
- * itself is not modified.
+ * Supports:
+ *   - teleproto layouts (updateManager / legacy flat maps)
+ *   - mtcute UpdatesManager (`client.updates.cpts` + storage `updates_channel:`)
+ *
+ * Does NOT modify node_modules.
  *
  * Note: logger is imported lazily to avoid circular dependency with logger.ts
  * which imports this module for recordChannelGapFailure/isChannelCircuitBroken.
@@ -34,9 +36,118 @@ interface GapBreakerClient {
     channelFailRetryTimers?: Map<string, ReturnType<typeof setTimeout>>;
     channelFailTimeoutS?: Map<string, unknown> & { has?: (key: string) => boolean };
   };
+  /** mtcute: high-level client.updates = UpdatesManager */
+  updates?: {
+    cpts?: Map<number | string, number>;
+    cptsMod?: Map<number | string, number>;
+    channelDiffTimeouts?: Map<number | string, ReturnType<typeof setTimeout>>;
+    inaccessibleChannels?: Set<number | string>;
+    channelsOpened?: Map<number | string, number> | Set<number | string>;
+  };
+  _updates?: GapBreakerClient["updates"];
+  storage?: {
+    updates?: {
+      getChannelPts?: (channelId: number) => Promise<number | null>;
+      setChannelPts?: (channelId: number, pts: number) => Promise<void>;
+      /** some builds expose kv delete via provider; optional best-effort */
+      _kv?: { delete?: (key: string) => Promise<void> | void };
+    };
+  };
   _channelPts?: Map<string, number | string>;
   _pendingChannelUpdates?: Map<string, unknown> & { has?: (key: string) => boolean };
   _fetchingChannelDifference?: Map<string, unknown> & { has?: (key: string) => boolean };
+}
+
+function parseChannelIdNum(channelId: string): number | null {
+  const n = Number(channelId);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * mtcute UpdatesManager keeps channel pts in memory (cpts/cptsMod) AND
+ * sqlite storage key `updates_channel:<id>`. teleproto-only clear paths
+ * are no-ops here — GitHubBot chats then stay on PERSISTENT_TIMESTAMP_OUTDATED
+ * forever and never deliver newMessages to Dispatcher (auto-update silent death).
+ */
+function clearMtcuteChannelState(
+  client: GapBreakerClient,
+  channelId: string,
+): { cleared: boolean; oldPts: number | string | null } {
+  const updates = client.updates ?? client._updates;
+  const idNum = parseChannelIdNum(channelId);
+  let cleared = false;
+  let oldPts: number | string | null = null;
+
+  if (updates) {
+    const keys: Array<number | string> = idNum != null ? [idNum, channelId, String(idNum)] : [channelId];
+    for (const key of keys) {
+      if (updates.cpts?.has?.(key)) {
+        if (oldPts == null) oldPts = updates.cpts.get(key) ?? null;
+        updates.cpts.delete(key);
+        cleared = true;
+      }
+      if (updates.cptsMod?.has?.(key)) {
+        updates.cptsMod.delete(key);
+        cleared = true;
+      }
+      if (updates.channelDiffTimeouts?.has?.(key)) {
+        const t = updates.channelDiffTimeouts.get(key);
+        if (t) clearTimeout(t);
+        updates.channelDiffTimeouts.delete(key);
+        cleared = true;
+      }
+      if (updates.inaccessibleChannels?.has?.(key)) {
+        updates.inaccessibleChannels.delete(key);
+        cleared = true;
+      }
+      // channelsOpened: Map or Set depending on mtcute build
+      const opened = updates.channelsOpened as
+        | (Map<number | string, number> & { delete: (k: number | string) => boolean })
+        | (Set<number | string> & { delete: (k: number | string) => boolean })
+        | undefined;
+      if (opened && typeof opened.delete === "function" && opened.has?.(key)) {
+        opened.delete(key);
+        cleared = true;
+      }
+    }
+  }
+
+  // Drop persisted pts so the next gap fill cannot reload the same stale value.
+  // mtcute only resets pts on PERSISTENT_TIMESTAMP_INVALID (not OUTDATED) —
+  // without storage clear, catch-up reloads the dead pts forever.
+  if (idNum != null && client.storage?.updates) {
+    const svc = client.storage.updates as {
+      getChannelPts?: (channelId: number) => Promise<number | null>;
+      setChannelPts?: (channelId: number, pts: number) => Promise<void>;
+      _kv?: {
+        delete?: (key: string) => Promise<void> | void;
+        set?: (key: string, val: Uint8Array) => Promise<void> | void;
+      };
+    };
+    void (async () => {
+      try {
+        if (typeof svc.getChannelPts === "function" && oldPts == null) {
+          const stored = await svc.getChannelPts(idNum);
+          if (stored != null) oldPts = stored;
+        }
+        const key = `updates_channel:${idNum}`;
+        if (svc._kv && typeof svc._kv.delete === "function") {
+          await svc._kv.delete(key);
+        } else if (typeof svc.setChannelPts === "function") {
+          // 0 → manager treats as missing-ish / re-seed; better than rejected pts
+          await svc.setChannelPts(idNum, 0);
+        }
+        getLogger().info(
+          `[channelGapBreaker] mtcute storage pts cleared channel=${idNum} oldPts=${oldPts ?? "?"}`,
+        );
+      } catch (e: unknown) {
+        getLogger().error("[channelGapBreaker] mtcute storage pts clear failed:", e);
+      }
+    })();
+    cleared = true;
+  }
+
+  return { cleared, oldPts };
 }
 
 // Note: this module intentionally does NOT import getGlobalClient — it needs
@@ -289,10 +400,21 @@ function clearChannelStateOnClient(
   let oldPts: number | string | null = null;
   let layout: string = "none";
 
+  // mtcute first (Next): client.updates = UpdatesManager — must run even when
+  // teleproto-shaped fields are absent. Previously layout stayed "none" forever.
+  if (client.updates || client._updates || client.storage?.updates) {
+    const mt = clearMtcuteChannelState(client, channelId);
+    if (mt.cleared) {
+      layout = "mtcute";
+      cleared = true;
+      if (mt.oldPts != null) oldPts = mt.oldPts;
+    }
+  }
+
   // teleproto 1.225+ layout: client.updateManager.{channels, channelFailRetryTimers, channelFailTimeoutS}
   const um = client.updateManager;
   if (um && um.channels && typeof um.channels.get === "function") {
-    layout = "updateManager";
+    layout = cleared ? `${layout}+updateManager` : "updateManager";
     const tracker = um.channels.get(channelId);
     if (tracker) {
       try {
@@ -322,7 +444,6 @@ function clearChannelStateOnClient(
     if (um.channelFailRetryTimers && typeof um.channelFailRetryTimers.get === "function") {
       const t = um.channelFailRetryTimers.get(channelId);
       if (t) {
-          /* ignored */
         clearTimeout(t);
         um.channelFailRetryTimers.delete(channelId);
         cleared = true;
@@ -337,26 +458,24 @@ function clearChannelStateOnClient(
   }
 
   // teleproto 1.224 and earlier: flat maps on the client
-  if (!cleared) {
-    if (client._channelPts && typeof client._channelPts.get === "function" && client._channelPts.has(channelId)) {
-      layout = "legacy";
-      oldPts = client._channelPts.get(channelId) ?? null;
-      client._channelPts.delete(channelId);
+  if (client._channelPts && typeof client._channelPts.get === "function" && client._channelPts.has(channelId)) {
+    layout = cleared && layout !== "none" ? `${layout}+legacy` : "legacy";
+    if (oldPts == null) oldPts = client._channelPts.get(channelId) ?? null;
+    client._channelPts.delete(channelId);
+    cleared = true;
+  }
+  if (client._pendingChannelUpdates && typeof client._pendingChannelUpdates.delete === "function") {
+    if (client._pendingChannelUpdates.has?.(channelId)) {
+      layout = layout === "none" ? "legacy" : layout;
+      client._pendingChannelUpdates.delete(channelId);
       cleared = true;
     }
-    if (client._pendingChannelUpdates && typeof client._pendingChannelUpdates.delete === "function") {
-      if (client._pendingChannelUpdates.has?.(channelId)) {
-        layout = layout === "none" ? "legacy" : layout;
-        client._pendingChannelUpdates.delete(channelId);
-        cleared = true;
-      }
-    }
-    if (client._fetchingChannelDifference && typeof client._fetchingChannelDifference.delete === "function") {
-      if (client._fetchingChannelDifference.has?.(channelId)) {
-        layout = layout === "none" ? "legacy" : layout;
-        client._fetchingChannelDifference.delete(channelId);
-        cleared = true;
-      }
+  }
+  if (client._fetchingChannelDifference && typeof client._fetchingChannelDifference.delete === "function") {
+    if (client._fetchingChannelDifference.has?.(channelId)) {
+      layout = layout === "none" ? "legacy" : layout;
+      client._fetchingChannelDifference.delete(channelId);
+      cleared = true;
     }
   }
 
