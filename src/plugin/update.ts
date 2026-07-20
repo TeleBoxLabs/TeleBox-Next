@@ -837,6 +837,12 @@ async function pollGithubBotHistory(): Promise<void> {
       if (!isNext) continue;
 
       logger.info(`[auto-update] poll 命中 msg=${mid}: ${text.slice(0, 120)}`);
+      // 先抬水位再处理：主仓 update 会 process.exit，否则水位停在旧值反复撞同一条
+      if (mid > poll.lastMsgId) {
+        savePollState({ lastMsgId: mid });
+        poll.lastMsgId = mid;
+      }
+      maxId = Math.max(maxId, mid);
       await handleGithubCommitNotice(text, {
         id: mid,
         chatId: GITHUB_UPDATE_CHAT_ID,
@@ -853,7 +859,7 @@ async function pollGithubBotHistory(): Promise<void> {
       break;
     }
 
-    if (maxId > poll.lastMsgId) {
+    if (maxId > loadPollState().lastMsgId) {
       savePollState({ lastMsgId: maxId });
     }
     if (handled > 0) {
