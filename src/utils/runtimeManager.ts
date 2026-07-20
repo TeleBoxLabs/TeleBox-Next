@@ -174,6 +174,18 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
     await loadPluginsForRuntime(runtime);
     // 切换后上线后，编辑之前留下的"正在切换…"通知消息
     await resolvePendingSwitchNotification(runtime.client, "mtcute");
+    // 打开 GitHubBot 绑定群的 channel update 环（mtcute 用户客户端需 openChat
+    // 才会持续 getChannelDifference；否则超活群 pts 脱节后 live 消息静默丢失）
+    void (async () => {
+      try {
+        const mod = require("../plugin/update") as {
+          ensureGithubUpdateChannelOpen?: (client: TelegramClient) => Promise<void>;
+        };
+        await mod.ensureGithubUpdateChannelOpen?.(runtime.client);
+      } catch (e) {
+        logger.warn("[RUNTIME] open GitHub update channel:", e);
+      }
+    })();
     void (async () => {
       try {
         const mod = require("../plugin/update") as {

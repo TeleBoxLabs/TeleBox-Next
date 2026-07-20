@@ -138,6 +138,10 @@ export async function createMtcuteClient(): Promise<TelegramClient> {
     initConnectionOptions: {
       deviceModel: readAppName(),
     },
+    // 启动时 catch-up：否则超活频道（GitHubBot 群）pts 脱节后 live update 永不投递
+    updates: {
+      catchUp: true,
+    },
     ...(transport ? { transport } : {}),
   });
 

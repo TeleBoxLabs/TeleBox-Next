@@ -613,11 +613,15 @@ async function autoUpdatePlugins(githubMsg: MessageContext): Promise<void> {
 
 // ── GitHubBot message parsing ──────────────────────────────────────────
 // Any chat with GitHubBot commit posts (product channel + telebox 群绑定)
-/** Legacy product channel (no longer required; any chat with GitHubBot works). */
-const _GITHUB_CHANNEL_ID_LEGACY = "-1003061608291";
-void _GITHUB_CHANNEL_ID_LEGACY;
+/** GitHubBot 绑定超级群（teleboxdevgroup）。mtcute 需 openChat 才能稳住 channel pts。 */
+const GITHUB_UPDATE_CHAT_ID = -1003061608291;
+const GITHUB_UPDATE_CHAT_USERNAME = "teleboxdevgroup";
 const GITHUB_BOT_USER_ID = "107550100";
 const GITHUB_BOT_USERNAME = "githubbot";
+
+const AUTO_UPDATE_POLL_STATE_FILE = path.join(AUTO_UPDATE_STATE_DIR, "auto_update_poll.json");
+/** History 兜底轮询间隔（秒）—— live Dispatcher 丢消息时仍能触发更新 */
+const AUTO_UPDATE_POLL_CRON = "*/2 * * * *";
 
 // Next edition only reacts to Next repos (not TeleBox / TeleBox-Plugins alone).
 // Accept TeleBoxOrg / TeleBoxLabs / bare names.
@@ -635,29 +639,229 @@ const MAIN_REPO_REVERSE_PATTERN =
 const PLUGIN_REPO_REVERSE_PATTERN =
   /\[?(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Next-Plugins|TeleBox-Next_Plugins|TeleBox_M_Plugins)\s*:\s*main\]?[\s\S]*?\bnew\s+commits?\b/i;
 
-function normalizeChatId(msg: MessageContext): number {
-  const id = msg.chat?.id;
-  if (id != null) return Number(id);
+function normalizeChatId(msg: { chat?: { id?: number }; chatId?: number } | MessageContext): number {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyMsg = msg as any;
-  if (anyMsg.chatId != null) return Number(anyMsg.chatId);
+  const id = anyMsg.chat?.id ?? anyMsg.chatId;
+  if (id != null) return Number(id);
   return 0;
+}
+
+function isGitHubBotSender(sender: unknown, fallback?: { senderId?: unknown; fromId?: { userId?: unknown } }): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const s = sender as any;
+  const sid = s?.id ?? s?.userId;
+  if (sid != null && String(sid) === GITHUB_BOT_USER_ID) return true;
+  const uname = String(s?.username || "").toLowerCase().replace(/^@/, "");
+  if (uname === GITHUB_BOT_USERNAME) return true;
+  if (fallback?.senderId != null && String(fallback.senderId) === GITHUB_BOT_USER_ID) return true;
+  if (fallback?.fromId?.userId != null && String(fallback.fromId.userId) === GITHUB_BOT_USER_ID) return true;
+  return false;
 }
 
 function isGitHubBot(msg: MessageContext): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sender = msg.sender as any;
-  // mtcute sender 可能是 User 对象 (含 id/username) 或 PeerUser (含 userId)
-  const sid = sender?.id ?? sender?.userId;
-  if (sid != null && String(sid) === GITHUB_BOT_USER_ID) return true;
-  const uname = String(sender?.username || "").toLowerCase().replace(/^@/, "");
-  if (uname === GITHUB_BOT_USERNAME) return true;
-  // 回退：any 属性上的 senderId / fromId
+  const anyMsg = msg as any;
+  return isGitHubBotSender(msg.sender, anyMsg);
+}
+
+/**
+ * 打开 GitHubBot 群的 channel updates 订阅 + 触发 catch-up。
+ * mtcute 用户客户端默认不对每个超级群做持续 getChannelDifference；
+ * 超活群 pts 一旦 OUTDATED，live newMessage 会静默丢失（auto-update 失效根因之一）。
+ */
+export async function ensureGithubUpdateChannelOpen(client: {
+  openChat?: (chat: string | number) => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updates?: { catchUp?: () => void; [k: string]: any };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [k: string]: any;
+}): Promise<void> {
+  const targets: Array<string | number> = [GITHUB_UPDATE_CHAT_ID, GITHUB_UPDATE_CHAT_USERNAME];
+  let opened = false;
+  for (const target of targets) {
+    try {
+      if (typeof client.openChat === "function") {
+        await client.openChat(target);
+        logger.info(`[auto-update] openChat ok: ${String(target)}`);
+        opened = true;
+        break;
+      }
+    } catch (e: unknown) {
+      logger.warn(`[auto-update] openChat failed (${String(target)}):`, getErrorMessage(e) || e);
+    }
+  }
+  try {
+    const updates = client.updates ?? client._updates;
+    if (updates && typeof updates.catchUp === "function") {
+      updates.catchUp();
+      logger.info("[auto-update] updates.catchUp() requested");
+    }
+  } catch (e: unknown) {
+    logger.warn("[auto-update] catchUp failed:", getErrorMessage(e) || e);
+  }
+  if (!opened) {
+    logger.warn("[auto-update] openChat 未成功 — 依赖 history 轮询兜底");
+  }
+}
+
+interface PollState {
+  lastMsgId: number;
+}
+
+function loadPollState(): PollState {
+  try {
+    if (fs.existsSync(AUTO_UPDATE_POLL_STATE_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(AUTO_UPDATE_POLL_STATE_FILE, "utf8"));
+      const id = Number(raw?.lastMsgId ?? 0);
+      return { lastMsgId: Number.isFinite(id) ? id : 0 };
+    }
+  } catch (e: unknown) {
+    logger.warn("[auto-update] 读取 poll 状态失败:", e);
+  }
+  return { lastMsgId: 0 };
+}
+
+function savePollState(state: PollState): void {
+  try {
+    fs.mkdirSync(AUTO_UPDATE_STATE_DIR, { recursive: true });
+    fs.writeFileSync(AUTO_UPDATE_POLL_STATE_FILE, JSON.stringify(state), "utf8");
+  } catch (e: unknown) {
+    logger.error("[auto-update] 保存 poll 状态失败:", e);
+  }
+}
+
+/** 从 MessageContext 或 getHistory Message 取正文 */
+function noticeTextFrom(msg: { text?: string; caption?: string } | MessageContext): string {
+  // Prefer dedicated extractor when available (entities / caption)
+  if (msg && typeof (msg as MessageContext).text === "string") {
+    try {
+      const t = getGithubNoticeText(msg as MessageContext);
+      if (t) return t;
+    } catch {
+      /* fall through */
+    }
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyMsg = msg as any;
-  if (anyMsg.senderId != null && String(anyMsg.senderId) === GITHUB_BOT_USER_ID) return true;
-  if (anyMsg.fromId?.userId != null && String(anyMsg.fromId.userId) === GITHUB_BOT_USER_ID) return true;
-  return false;
+  return String(anyMsg.text || anyMsg.caption || "");
+}
+
+/**
+ * 统一处理 GitHubBot 提交通知（live listen + history 轮询共用）。
+ * source 需具备 id；replyText 可选（失败时回复）。
+ */
+async function handleGithubCommitNotice(
+  text: string,
+  source: {
+    id: number;
+    chatId: number;
+    replyText?: (text: string) => Promise<unknown>;
+  },
+): Promise<void> {
+  if (!COMMIT_NOTICE_PATTERN.test(text)) return;
+  logger.info(`[auto-update] GitHubBot 提交通知: ${text.slice(0, 200)}`);
+
+  // 构造最小 githubMsg 兼容体（autoUpdate* 用 id / replyText / normalizeChatId）
+  const githubMsg = {
+    id: source.id,
+    text,
+    chat: { id: source.chatId },
+    chatId: source.chatId,
+    replyText: source.replyText
+      ? async (t: string) => source.replyText!(t)
+      : async () => undefined,
+  } as unknown as MessageContext;
+
+  if (PLUGIN_REPO_PATTERN.test(text) || PLUGIN_REPO_REVERSE_PATTERN.test(text)) {
+    logger.info(`[auto-update] chat=${source.chatId || "?"} 插件仓库提交 → silent update`);
+    await autoUpdatePlugins(githubMsg);
+  } else if (MAIN_REPO_PATTERN.test(text) || MAIN_REPO_REVERSE_PATTERN.test(text)) {
+    logger.info(`[auto-update] chat=${source.chatId || "?"} 主仓库提交 → silent update`);
+    await autoUpdateMainRepo(githubMsg);
+  } else {
+    logger.info(
+      `[auto-update] chat=${source.chatId || "?"} GitHubBot 通知未匹配 Next 仓库: ${text.slice(0, 120)}`,
+    );
+  }
+}
+
+/** History 兜底：live 丢消息时仍能扫到 GitHubBot 提交 */
+async function pollGithubBotHistory(): Promise<void> {
+  const state = loadAutoUpdateState();
+  if (!state.enabled) return;
+
+  try {
+    const client = await getGlobalClient();
+    // 刷新 channel 订阅（超时后需再次 openChat）
+    try {
+      if (typeof client.openChat === "function") {
+        await client.openChat(GITHUB_UPDATE_CHAT_ID);
+      }
+    } catch {
+      try {
+        if (typeof client.openChat === "function") {
+          await client.openChat(GITHUB_UPDATE_CHAT_USERNAME);
+        }
+      } catch {
+        /* history 仍可试 */
+      }
+    }
+
+    const msgs = await client.getHistory(GITHUB_UPDATE_CHAT_ID, { limit: 25 });
+    if (!Array.isArray(msgs) || msgs.length === 0) return;
+
+    const poll = loadPollState();
+    // getHistory 通常新→旧；按 id 升序处理
+    const ordered = [...msgs].sort((a: { id: number }, b: { id: number }) => a.id - b.id);
+    let maxId = poll.lastMsgId;
+    let handled = 0;
+
+    for (const m of ordered) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyM = m as any;
+      const mid = Number(anyM.id ?? 0);
+      if (!mid || mid <= poll.lastMsgId) continue;
+      if (mid > maxId) maxId = mid;
+
+      if (!isGitHubBotSender(anyM.sender, anyM)) continue;
+      const text = noticeTextFrom(anyM);
+      if (!text || !COMMIT_NOTICE_PATTERN.test(text)) continue;
+
+      // 只处理 Next 相关仓库，避免无意义日志
+      const isNext =
+        PLUGIN_REPO_PATTERN.test(text) ||
+        PLUGIN_REPO_REVERSE_PATTERN.test(text) ||
+        MAIN_REPO_PATTERN.test(text) ||
+        MAIN_REPO_REVERSE_PATTERN.test(text);
+      if (!isNext) continue;
+
+      logger.info(`[auto-update] poll 命中 msg=${mid}: ${text.slice(0, 120)}`);
+      await handleGithubCommitNotice(text, {
+        id: mid,
+        chatId: GITHUB_UPDATE_CHAT_ID,
+        replyText: async (t: string) => {
+          try {
+            await client.sendText(GITHUB_UPDATE_CHAT_ID, t, { replyTo: mid });
+          } catch {
+            /* ignore */
+          }
+        },
+      });
+      handled++;
+      // 一次 tick 只跑一个更新，避免连环 reload 打架
+      break;
+    }
+
+    if (maxId > poll.lastMsgId) {
+      savePollState({ lastMsgId: maxId });
+    }
+    if (handled > 0) {
+      logger.info(`[auto-update] poll 处理 ${handled} 条，lastMsgId→${Math.max(maxId, poll.lastMsgId)}`);
+    }
+  } catch (e: unknown) {
+    logger.warn("[auto-update] history poll failed:", getErrorMessage(e) || e);
+  }
 }
 
 class UpdatePlugin extends Plugin {
@@ -678,7 +882,8 @@ class UpdatePlugin extends Plugin {
             text:
               "✅ 自动更新已开启\n\n" +
               "任意会话中 GitHubBot 推送 Next 仓库（TeleBox-Next / TeleBox-Next-Plugins）提交时自动更新。\n" +
-              "成功：仅在 commit 消息上 ❤️；失败：回复错误。",
+              "成功：仅在 commit 消息上 ❤️；失败：回复错误。\n" +
+              "另：每 2 分钟 history 兜底（防 mtcute 频道更新环丢消息）。",
           });
           return;
         }
@@ -699,6 +904,41 @@ class UpdatePlugin extends Plugin {
     },
   };
 
+  /** 启动时 openChat + 种子 poll cursor，避免把历史全量当新提交 */
+  setup = async (): Promise<void> => {
+    try {
+      const client = await getGlobalClient();
+      await ensureGithubUpdateChannelOpen(client);
+    } catch (e: unknown) {
+      logger.warn("[auto-update] setup openChat:", getErrorMessage(e) || e);
+    }
+    // 若尚无 poll cursor，用当前最新 msg id 作水位，只处理此后新消息
+    try {
+      const poll = loadPollState();
+      if (poll.lastMsgId <= 0) {
+        const client = await getGlobalClient();
+        const msgs = await client.getHistory(GITHUB_UPDATE_CHAT_ID, { limit: 1 });
+        const top = Array.isArray(msgs) && msgs[0] ? Number((msgs[0] as { id?: number }).id ?? 0) : 0;
+        if (top > 0) {
+          savePollState({ lastMsgId: top });
+          logger.info(`[auto-update] poll cursor 初始化 lastMsgId=${top}`);
+        }
+      }
+    } catch (e: unknown) {
+      logger.warn("[auto-update] poll cursor init:", getErrorMessage(e) || e);
+    }
+  };
+
+  cronTasks = {
+    autoUpdateGithubPoll: {
+      cron: AUTO_UPDATE_POLL_CRON,
+      description: "GitHubBot history 兜底轮询（live Dispatcher 丢消息时仍触发 auto-update）",
+      handler: async () => {
+        await pollGithubBotHistory();
+      },
+    },
+  };
+
   listenMessageHandler = async (msg: MessageContext): Promise<void> => {
     const state = loadAutoUpdateState();
     if (!state.enabled) return;
@@ -711,21 +951,27 @@ class UpdatePlugin extends Plugin {
       // GitHubBot may send non-commit messages (e.g. CI results); skip silently
       return;
     }
-    logger.info(`[auto-update] GitHubBot 提交通知: ${text.slice(0, 200)}`);
 
     const chatId = normalizeChatId(msg);
-    // 标准格式优先，再试反向 markdown 格式
-    if (PLUGIN_REPO_PATTERN.test(text) || PLUGIN_REPO_REVERSE_PATTERN.test(text)) {
-      logger.info(`[auto-update] chat=${chatId || "?"} 插件仓库提交 → silent update`);
-      await autoUpdatePlugins(msg);
-    } else if (MAIN_REPO_PATTERN.test(text) || MAIN_REPO_REVERSE_PATTERN.test(text)) {
-      logger.info(`[auto-update] chat=${chatId || "?"} 主仓库提交 → silent update`);
-      await autoUpdateMainRepo(msg);
-    } else {
-      logger.info(
-        `[auto-update] chat=${chatId || "?"} GitHubBot 通知未匹配 Next 仓库: ${text.slice(0, 120)}`,
-      );
+    // 推进 poll 水位，避免 history 兜底重复处理同一条
+    if (msg.id != null && Number(msg.id) > 0) {
+      const poll = loadPollState();
+      if (Number(msg.id) > poll.lastMsgId) {
+        savePollState({ lastMsgId: Number(msg.id) });
+      }
     }
+
+    await handleGithubCommitNotice(text, {
+      id: Number(msg.id ?? 0),
+      chatId,
+      replyText: async (t: string) => {
+        try {
+          await msg.replyText(t);
+        } catch {
+          /* ignore */
+        }
+      },
+    });
   };
 }
 
