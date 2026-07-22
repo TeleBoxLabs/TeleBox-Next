@@ -93,6 +93,19 @@
     return d.innerHTML;
   }
 
+  function hideSettingsSave() {
+    const btn = $("#settings-save");
+    if (btn) btn.style.display = "none";
+    const actions = btn?.closest(".form-actions");
+    if (actions) actions.style.display = "none";
+  }
+  function showSettingsSave() {
+    const btn = $("#settings-save");
+    if (btn) btn.style.display = "";
+    const actions = btn?.closest(".form-actions");
+    if (actions) actions.style.display = "";
+  }
+
   /* ===== Auth ===== */
   async function doAuth() {
     const msg = $("#boot-msg");
@@ -645,25 +658,30 @@
       if (id === "alias") {
         form.innerHTML = renderAliasEditor(values);
         wireAliasEditor(id, form);
+        hideSettingsSave();
         return;
       }
       if (id === "prefix") {
         form.innerHTML = renderPrefixEditor(values);
         wirePrefixEditor(id, form);
+        hideSettingsSave();
         return;
       }
       if (id === "sudo") {
         form.innerHTML = renderSudoEditor(values);
         wireSudoEditor(id, form);
+        hideSettingsSave();
         return;
       }
       if (id === "status") {
         form.innerHTML = renderStatusEditor(values);
         wireStatusEditor(id, form);
+        hideSettingsSave();
         return;
       }
 
       // Generic renderer
+      showSettingsSave();
       form.innerHTML = schema.map((f) => {
         const val = values[f.key];
         let input = "";
@@ -828,9 +846,8 @@
     $("#prefix-save-btn").onclick = async () => {
       const prefixes = [...tagContainer.querySelectorAll(".prefix-tag")].map(t => t.querySelector("span").textContent).join(" ");
       try {
-        await put("/settings/" + encodeURIComponent(id), { prefixes });
-        toast("✅ 已保存");
-        loadSettingsDetail(id);
+        await put("/settings/"+encodeURIComponent(id), { prefixes });
+        toast("✅ 前缀已保存");
       } catch (e) { toast("❌ " + e.message); }
     };
   }
