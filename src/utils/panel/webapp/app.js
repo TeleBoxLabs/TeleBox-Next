@@ -627,9 +627,7 @@
       $$("[data-settings-id]").forEach((el) => {
         el.onclick = () => {
           if (el.dataset.settingsId === "__admins__") {
-            page("settings");
-            $("#settings-admin-card").style.display = "block";
-            $("#settings-admin-card").scrollIntoView({ behavior: "smooth", block: "start" });
+            page("settings-admin");
             loadAdminsTab();
             return;
           }
@@ -639,8 +637,7 @@
     } catch (e) {
       $("#settings-list").innerHTML = `<div class="empty">❌ ${escape(e.message)}</div>`;
     }
-    // 权限组下方内嵌管理员卡片
-    loadAdminsTab();
+    // 权限组下方不再内嵌管理员卡片
   }
 
   async function loadSettingsDetail(id) {
@@ -974,51 +971,49 @@
     };
   }
 
-  /* ===== Admins (embedded in settings page) ===== */
   async function loadAdminsTab() {
-    try {
-      const data = await get("/admins");
-      $("#settings-admin-card").style.display = "block";
-      const list = $("#admins-list");
-      const items = data.admins || [];
-      const rows = items.map((a) => `<div class="list-item">
-        <div class="leading">👤</div>
-        <div class="body">
-          <div class="title">${escape(String(a.userId))}</div>
-          <div class="desc">${a.note ? escape(a.note) : ""} · 添加于 ${new Date(a.addedAt).toLocaleString("zh-CN")}</div>
-        </div>
-        <div class="trailing">
-          <button class="btn sm outlined" data-admin-del="${a.userId}">移除</button>
-        </div>
-      </div>`).join("");
+      try {
+        const data = await get("/admins");
+        const list = $("#admins-list");
+        const items = data.admins || [];
+        const rows = items.map((a) => `<div class="list-item">
+          <div class="leading">👤</div>
+          <div class="body">
+            <div class="title">${escape(String(a.userId))}</div>
+            <div class="desc">${a.note ? escape(a.note) : ""} · 添加于 ${new Date(a.addedAt).toLocaleString("zh-CN")}</div>
+          </div>
+          <div class="trailing">
+            <button class="btn sm outlined" data-admin-del="${a.userId}">移除</button>
+          </div>
+        </div>`).join("");
 
-      const ownerRow = `<div class="list-item" style="opacity:0.7">
-        <div class="leading">👑</div>
-        <div class="body">
-          <div class="title">${escape(String(data.ownerId))}</div>
-          <div class="desc">Owner · 始终允许</div>
-        </div>
-      </div>`;
+        const ownerRow = `<div class="list-item" style="opacity:0.7">
+          <div class="leading">👑</div>
+          <div class="body">
+            <div class="title">${escape(String(data.ownerId))}</div>
+            <div class="desc">Owner · 始终允许</div>
+          </div>
+        </div>`;
 
-      list.innerHTML = ownerRow + (items.length ? rows : '<div class="empty">暂无额外管理员</div>');
+        list.innerHTML = ownerRow + (items.length ? rows : '<div class="empty">暂无额外管理员</div>');
 
-      $$("[data-admin-del]").forEach((btn) => {
-        btn.onclick = async () => {
-          const uid = btn.dataset.adminDel;
-          modal("移除管理员", `确定移除 <b>${escape(uid)}</b>？`, [
-            { label: "取消", primary: false },
-            { label: "移除", primary: true, action: async () => {
-              await del("/admins/" + encodeURIComponent(uid));
-              toast("✅ 已移除");
-              loadAdminsTab();
-            }},
-          ]);
-        };
-      });
-    } catch (e) {
-      $("#admins-list").innerHTML = `<div class="empty">❌ ${escape(e.message)}</div>`;
+        $$("[data-admin-del]").forEach((btn) => {
+          btn.onclick = async () => {
+            const uid = btn.dataset.adminDel;
+            modal("移除管理员", `确定移除 <b>${escape(uid)}</b>？`, [
+              { label: "取消", primary: false },
+              { label: "移除", primary: true, action: async () => {
+                await del("/admins/" + encodeURIComponent(uid));
+                toast("✅ 已移除");
+                loadAdminsTab();
+              }},
+            ]);
+          };
+        });
+      } catch (e) {
+        $("#admins-list").innerHTML = `<div class="empty">❌ ${escape(e.message)}</div>`;
+      }
     }
-  }
 
   /* ===== Wiring ===== */
   async function initApp() {

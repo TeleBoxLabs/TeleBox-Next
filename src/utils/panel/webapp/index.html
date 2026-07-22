@@ -116,16 +116,6 @@
         <!-- Settings -->
         <div class="page hidden" data-page="settings">
           <div class="list" id="settings-list"></div>
-          <div class="card elevation-1" id="settings-admin-card" style="display:none">
-            <div class="card-title">管理员管理</div>
-            <div class="form-row">
-              <input id="admin-uid" type="number" inputmode="numeric" placeholder="Telegram user id" class="field" />
-              <input id="admin-note" type="text" placeholder="备注（可选）" class="field" />
-              <button class="btn filled" id="admin-add">添加</button>
-            </div>
-            <p class="muted small">仅 owner 可增删。Owner 始终拥有权限。</p>
-            <div class="list" id="admins-list"></div>
-          </div>
         </div>
         <div class="page hidden" data-page="settings-detail">
           <button class="btn text back-btn" data-go="settings">
@@ -138,6 +128,21 @@
             <div class="form-actions">
               <button type="submit" form="settings-form" class="btn filled" id="settings-save">保存</button>
             </div>
+          </div>
+        </div>
+        <div class="page hidden" data-page="settings-admin">
+          <button class="btn text back-btn" data-go="settings">
+            <span class="material-icons-round">arrow_back</span> 返回
+          </button>
+          <div class="card elevation-1">
+            <div class="card-title">管理员管理</div>
+            <div class="form-row">
+              <input id="admin-uid" type="number" inputmode="numeric" placeholder="Telegram user id" class="field" />
+              <input id="admin-note" type="text" placeholder="备注（可选）" class="field" />
+              <button class="btn filled" id="admin-add">添加</button>
+            </div>
+            <p class="muted small">仅 owner 可增删。Owner 始终拥有权限。</p>
+            <div class="list" id="admins-list"></div>
           </div>
         </div>
       </main>
