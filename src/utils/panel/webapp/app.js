@@ -679,6 +679,17 @@
 
       // Generic renderer
       showSettingsSave();
+      
+      // Check for custom renderer types
+      const hasCustomRenderer = schema.some((f) => 
+        ["provider-list", "prompt-map", "tag-list"].includes(f.type)
+      );
+      if (hasCustomRenderer) {
+        form.innerHTML = schema.map((f) => renderCustomField(f, values)).join("");
+        wireCustomFields(id, schema, form);
+        return;
+      }
+      
       form.innerHTML = schema.map((f) => {
         const val = values[f.key];
         let input = "";
@@ -1014,6 +1025,193 @@
         $("#admins-list").innerHTML = `<div class="empty">❌ ${escape(e.message)}</div>`;
       }
     }
+
+  // ============ Custom editor renderers for new field types ============
+
+  function renderProviderListEditor(values, field) {
+    const lines = (values[field.key] || "").split("\n").filter(l => l.trim());
+    const columns = (field.providerColumns || "name|url|key|model|type").split("|");
+    const headers = columns.map(c => c.charAt(0).toUpperCase() + c.slice(1).replace("_", " ")).join(" | ");
+    
+    let html = `<div class="provider-list-editor" data-field-key="${escape(field.key)}">`;
+    html += `<div class="provider-list-header">${escape(headers)}</div>`;
+    html += `<textarea class="provider-list-textarea" placeholder="每行一个供应商，用 | 分隔${field.description ? ` — ${escape(field.description)}` : ''}">${escape(values[field.key] || "")}</textarea>`;
+    html += `<div class="provider-list-hint">列顺序: ${escape(field.providerColumns || "name|base_url|api_key|model|type")} | 留空 Key 保持原值</div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  function wireProviderListEditor(form, field) {
+    const textarea = form.querySelector(`.provider-list-textarea[data-field-key="${field.key}"]`);
+    if (!textarea) return;
+    // Real-time validation could be added here
+  }
+
+  function renderPromptMapEditor(values, field) {
+    try {
+      const obj = JSON.parse(values[field.key] || "{}");
+      const entries = Object.entries(obj);
+      let html = `<div class="prompt-map-editor" data-field-key="${escape(field.key)}">`;
+      if (entries.length === 0) {
+        html += `<div class="prompt-map-empty">暂无预设，添加一个</div>`;
+      } else {
+        entries.forEach(([k, v]) => {
+          html += `<div class="prompt-map-entry"><input class="prompt-map-key" value="${escape(k)}" placeholder="${escape(field.promptKeyPlaceholder || "简写")}" /><span class="material-icons-round">arrow_forward</span><textarea class="prompt-map-value" placeholder="${escape(field.promptValuePlaceholder || "Prompt 文本")}">${escape(v)}</textarea><button class="btn sm text remove-prompt-map"><span class="material-icons-round">close</span></button></div>`;
+        });
+      }
+      html += `<div class="prompt-map-entry"><input class="prompt-map-key" placeholder="${escape(field.promptKeyPlaceholder || "简写")}" /><span class="material-icons-round">arrow_forward</span><textarea class="prompt-map-value" placeholder="${escape(field.promptValuePlaceholder || "Prompt 文本")}"></textarea><button class="btn sm filled add-prompt-map">+</button></div>`;
+      html += `</div>`;
+      return html;
+    } catch {
+      return `<div class="prompt-map-editor" data-field-key="${escape(field.key)}"><textarea class="prompt-map-textarea" placeholder="JSON 格式: {\"简写\": \"prompt文本\"}">${escape(values[field.key] || "")}</textarea></div>`;
+    }
+  }
+
+  function wirePromptMapEditor(form, field) {
+    const container = form.querySelector(`.prompt-map-editor[data-field-key="${field.key}"]`);
+    if (!container) return;
+    container.addEventListener("click", (e) => {
+      const addBtn = e.target.closest(".add-prompt-map");
+      if (addBtn) {
+        const entry = addBtn.closest(".prompt-map-entry");
+        const newEntry = entry.cloneNode(true);
+        newEntry.querySelector(".prompt-map-key").value = "";
+        newEntry.querySelector(".prompt-map-value").value = "";
+        const btn = newEntry.querySelector(".add-prompt-map");
+        btn.className = "btn sm text remove-prompt-map";
+        btn.innerHTML = '<span class="material-icons-round">close</span>';
+        entry.after(newEntry);
+        newEntry.querySelector(".prompt-map-key").focus();
+        return;
+      }
+      const rmBtn = e.target.closest(".remove-prompt-map");
+      if (rmBtn) {
+        const entry = rmBtn.closest(".prompt-map-entry");
+        if (container.querySelectorAll(".prompt-map-entry").length > 1) entry.remove();
+        return;
+      }
+    });
+  }
+
+  function renderTagListEditor(values, field) {
+    const tags = (values[field.key] || "").split(/\s+/).filter(Boolean);
+    let html = `<div class="tag-list-editor" data-field-key="${escape(field.key)}">`;
+    html += `<div class="tag-list-tags">`;
+    tags.forEach(t => {
+      html += `<span class="tag-item"><span>${escape(t)}</span><span class="material-icons-round remove-tag">close</span></span>`;
+    });
+    html += `</div>`;
+    html += `<div class="tag-list-input-row"><input type="text" class="tag-list-input" placeholder="${escape(field.tagPlaceholder || "添加标签")}" maxlength="20" /><button class="btn sm filled add-tag">添加</button></div>`;
+    html += `</div>`;
+    return html;
+  }
+
+  function wireTagListEditor(form, field) {
+    const container = form.querySelector(`.tag-list-editor[data-field-key="${field.key}"]`);
+    if (!container) return;
+    const input = container.querySelector(".tag-list-input");
+    const tagContainer = container.querySelector(".tag-list-tags");
+    
+    container.addEventListener("click", (e) => {
+      const rm = e.target.closest(".remove-tag");
+      if (rm) {
+        rm.closest(".tag-item").remove();
+        return;
+      }
+      const add = e.target.closest(".add-tag");
+      if (add) {
+        const val = input.value.trim();
+        if (!val) return;
+        const existing = [...tagContainer.querySelectorAll(".tag-item span:first-child")].map(s => s.textContent);
+        if (!field.tagAllowDuplicates && existing.includes(val)) { toast("已存在"); return; }
+        const tag = document.createElement("span");
+        tag.className = "tag-item";
+        tag.innerHTML = `<span>${escape(val)}</span><span class="material-icons-round remove-tag">close</span>`;
+        tagContainer.appendChild(tag);
+        input.value = "";
+        input.focus();
+      }
+    });
+    input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); container.querySelector(".add-tag")?.click(); } };
+  }
+
+  /* ===== Generic custom field renderer ===== */
+  
+  function renderCustomField(field, values) {
+    const val = values[field.key];
+    let hint = field.description ? `<div class="hint">${escape(field.description)}</div>` : "";
+    
+    if (field.type === "provider-list") {
+      return `<div class="field-group"><label>${escape(field.label)}</label>${renderProviderListEditor(values, field)}${hint}</div>`;
+    }
+    if (field.type === "prompt-map") {
+      return `<div class="field-group"><label>${escape(field.label)}</label>${renderPromptMapEditor(values, field)}${hint}</div>`;
+    }
+    if (field.type === "tag-list") {
+      return `<div class="field-group"><label>${escape(field.label)}</label>${renderTagListEditor(values, field)}${hint}</div>`;
+    }
+    // Fallback to generic
+    let input = "";
+    if (field.type === "boolean") {
+      input = `<div class="switch"><span>${escape(field.label)}</span><input type="checkbox" name="${escape(field.key)}" ${val ? "checked" : ""} /></div>`;
+    } else if (field.type === "select" && field.options?.length) {
+      const opts = field.options.map((o) => `<option value="${escape(o.value)}"${String(val) === o.value ? " selected" : ""}>${escape(o.label)}</option>`).join("");
+      input = `<select name="${escape(field.key)}">${opts}</select>`;
+    } else if (field.type === "textarea") {
+      input = `<textarea name="${escape(field.key)}" placeholder="${escape(field.placeholder || "")}">${val != null ? escape(String(val)) : ""}</textarea>`;
+    } else {
+      input = `<input type="${field.secret ? "password" : "text"}" name="${escape(field.key)}" value="${val != null ? escape(String(val)) : ""}" placeholder="${escape(field.placeholder || "")}" />`;
+    }
+    return `<div class="field-group"><label>${escape(field.label)}</label>${input}${hint}</div>`;
+  }
+  
+  function wireCustomFields(id, schema, form) {
+    schema.forEach((f) => {
+      if (f.type === "provider-list") wireProviderListEditor(form, f);
+      else if (f.type === "prompt-map") wirePromptMapEditor(form, f);
+      else if (f.type === "tag-list") wireTagListEditor(form, f);
+    });
+    
+    $("#settings-save").onclick = async () => {
+      const patch = {};
+      schema.forEach((f) => {
+        const el = form.elements[f.key];
+        if (!el) return;
+        if (f.type === "provider-list") {
+          const textarea = form.querySelector(`.provider-list-textarea[data-field-key="${f.key}"]`);
+          if (textarea) patch[f.key] = textarea.value;
+        } else if (f.type === "prompt-map") {
+          const container = form.querySelector(`.prompt-map-editor[data-field-key="${f.key}"]`);
+          if (container) {
+            const obj = {};
+            container.querySelectorAll(".prompt-map-entry").forEach((entry) => {
+              const key = entry.querySelector(".prompt-map-key").value.trim();
+              const val = entry.querySelector(".prompt-map-value").value.trim();
+              if (key && val) obj[key] = val;
+            });
+            patch[f.key] = JSON.stringify(obj);
+          }
+        } else if (f.type === "tag-list") {
+          const container = form.querySelector(`.tag-list-editor[data-field-key="${f.key}"]`);
+          if (container) {
+            const tags = [...container.querySelectorAll(".tag-item span:first-child")].map(s => s.textContent);
+            patch[f.key] = tags.join(" ");
+          }
+        } else if (f.type === "boolean") {
+          patch[f.key] = el.checked;
+        } else if (f.type === "number") {
+          patch[f.key] = Number(el.value);
+        } else {
+          patch[f.key] = el.value;
+        }
+      });
+      try {
+        await put("/settings/" + encodeURIComponent(id), patch);
+        toast("✅ 已保存");
+        loadSettingsDetail(id);
+      } catch (e) { toast("❌ " + e.message); }
+    };
+  }
 
   /* ===== Wiring ===== */
   async function initApp() {
