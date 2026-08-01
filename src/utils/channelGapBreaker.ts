@@ -19,11 +19,100 @@
  *
  * Note: logger is imported lazily to avoid circular dependency with logger.ts
  * which imports this module for recordChannelGapFailure/isChannelCircuitBroken.
+ *
+ * Persistence: channel failure state is saved to disk (JSON) so that
+ * breakCount and cooldown escalation survive process restarts.
  */
 
 function getLogger() {
   // Lazy require to break circular dependency with logger.ts
   return require("./logger").logger;
+}
+
+import { promises as fs } from "fs";
+import { join } from "path";
+
+const STATE_FILE = join(process.cwd(), "data", "circuit-breaker-state.json");
+
+interface PersistedFailureRecord {
+  timestamps: number[];
+  brokenAt: number | null;
+  breakCount: number;
+}
+
+async function loadPersistedState(): Promise<Map<string, FailureRecord>> {
+  try {
+    const content = await fs.readFile(STATE_FILE, "utf-8");
+    const data = JSON.parse(content) as Record<string, PersistedFailureRecord>;
+    const map = new Map<string, FailureRecord>();
+    for (const [channelId, record] of Object.entries(data)) {
+      map.set(channelId, { ...record });
+    }
+    getLogger().info(`[channelGapBreaker] Loaded ${map.size} persisted channel failure records`);
+    return map;
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      getLogger().warn("[channelGapBreaker] Failed to load persisted state:", e);
+    }
+    return new Map();
+  }
+}
+
+async function savePersistedState(map: Map<string, FailureRecord>): Promise<void> {
+  try {
+    await fs.mkdir(join(process.cwd(), "data"), { recursive: true });
+    const data: Record<string, PersistedFailureRecord> = {};
+    for (const [channelId, record] of map) {
+      data[channelId] = { ...record };
+    }
+    await fs.writeFile(STATE_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (e: unknown) {
+    getLogger().error("[channelGapBreaker] Failed to save persisted state:", e);
+  }
+}
+
+let channelFailures: Map<string, FailureRecord>;
+let persistenceInitialized = false;
+
+async function ensurePersistenceInitialized(): Promise<void> {
+  if (!persistenceInitialized) {
+    channelFailures = await loadPersistedState();
+    persistenceInitialized = true;
+  }
+}
+
+function getChannelFailures(): Map<string, FailureRecord> {
+  if (!persistenceInitialized) {
+    // Fallback for synchronous access before init (should not happen in normal flow)
+    channelFailures = new Map();
+    persistenceInitialized = true;
+  }
+  return channelFailures;
+}
+
+// Synchronous cache for circuit-broken channels (for use in console overrides)
+const circuitBrokenCache = new Set<string>();
+
+function updateCircuitBrokenCache(): void {
+  const failures = getChannelFailures();
+  const now = Date.now();
+  circuitBrokenCache.clear();
+  for (const [channelId, record] of failures) {
+    if (record.brokenAt) {
+      const effectiveCooldown = getEffectiveCooldown(record.breakCount);
+      if (now - record.brokenAt < effectiveCooldown) {
+        circuitBrokenCache.add(channelId);
+      }
+    }
+  }
+}
+
+/**
+ * Synchronous check if a channel is currently circuit-broken.
+ * Uses the cached state for fast access in console overrides.
+ */
+export function isChannelCircuitBrokenSync(channelId: string): boolean {
+  return circuitBrokenCache.has(channelId);
 }
 
 /** Shape of the internal client properties we access for gap breaking. */
@@ -208,7 +297,7 @@ interface FailureRecord {
 
 // --- State -------------------------------------------------------------------
 
-const channelFailures = new Map<string, FailureRecord>();
+// const channelFailures = new Map<string, FailureRecord>();
 
 // --- Public API --------------------------------------------------------------
 
@@ -220,20 +309,22 @@ const channelFailures = new Map<string, FailureRecord>();
  * @param channelId - The Telegram channel/group ID as a string (e.g. "1680975844")
  * @param errorMsg - Optional full error message to detect fatal unrecoverable errors
  */
-export function recordChannelGapFailure(channelId: string, errorMsg?: string): void {
+export async function recordChannelGapFailure(channelId: string, errorMsg?: string): Promise<void> {
+  await ensurePersistenceInitialized();
   const now = Date.now();
 
   // Evict stale entries if the map grows too large. Proactive eviction
   // bounds memory even under very high channel counts (long-running bots
   // subscribed to many chats) instead of waiting for an external cron.
-  if (channelFailures.size >= MAX_TRACKED_CHANNELS) {
+  const failures = getChannelFailures();
+  if (failures.size >= MAX_TRACKED_CHANNELS) {
     evictStaleRecords(now);
   }
 
-  let record = channelFailures.get(channelId);
+  let record = failures.get(channelId);
   if (!record) {
     record = { timestamps: [], brokenAt: null, breakCount: 0 };
-    channelFailures.set(channelId, record);
+    failures.set(channelId, record);
   }
 
   // Check for fatal unrecoverable errors that should trigger immediate circuit break
@@ -255,7 +346,7 @@ export function recordChannelGapFailure(channelId: string, errorMsg?: string): v
 
   // For fatal errors, trigger immediate circuit break
   if (isFatalError) {
-    circuitBreakChannel(channelId);
+    await circuitBreakChannel(channelId);
     return;
   }
 
@@ -264,17 +355,23 @@ export function recordChannelGapFailure(channelId: string, errorMsg?: string): v
   record.timestamps.push(now);
 
   if (record.timestamps.length >= FAILURE_THRESHOLD) {
-    circuitBreakChannel(channelId);
+    await circuitBreakChannel(channelId);
   }
+  updateCircuitBrokenCache();
 }
 
 /**
  * Check whether a channel has been circuit-broken and should be skipped.
  * This can be used to avoid logging redundant warnings.
  */
-export function isChannelCircuitBroken(channelId: string): boolean {
-  const record = channelFailures.get(channelId);
-  if (!record || !record.brokenAt) return false;
+export async function isChannelCircuitBroken(channelId: string): Promise<boolean> {
+  await ensurePersistenceInitialized();
+  const failures = getChannelFailures();
+  const record = failures.get(channelId);
+  if (!record || !record.brokenAt) {
+    updateCircuitBrokenCache();
+    return false;
+  }
   const now = Date.now();
   const effectiveCooldown = getEffectiveCooldown(record.breakCount);
   if (now - record.brokenAt >= effectiveCooldown) {
@@ -283,8 +380,11 @@ export function isChannelCircuitBroken(channelId: string): boolean {
     // uses the escalated cooldown.
     record.brokenAt = null;
     record.timestamps = [];
+    await savePersistedState(failures);
+    updateCircuitBrokenCache();
     return false;
   }
+  updateCircuitBrokenCache();
   return true;
 }
 
@@ -294,8 +394,10 @@ export function isChannelCircuitBroken(channelId: string): boolean {
  * Records with active circuit-breaks or recent failures are never evicted,
  * preserving both the failure history and any escalated (exponential) cooldown.
  */
-function evictStaleRecords(now: number): void {
-  for (const [channelId, record] of channelFailures) {
+async function evictStaleRecords(now: number): Promise<void> {
+  const failures = getChannelFailures();
+  let changed = false;
+  for (const [channelId, record] of failures) {
     const hasActiveFailures = record.timestamps.some((t) => now - t < FAILURE_WINDOW_MS);
     const isCircuitBroken =
       record.brokenAt !== null && now - record.brokenAt < getEffectiveCooldown(record.breakCount);
@@ -311,8 +413,12 @@ function evictStaleRecords(now: number): void {
     const isStale = lastActivity > 0 && now - lastActivity >= EVICTION_MIN_AGE_MS;
 
     if (!hasActiveFailures && !isCircuitBroken && isStale) {
-      channelFailures.delete(channelId);
+      failures.delete(channelId);
+      changed = true;
     }
+  }
+  if (changed) {
+    await savePersistedState(failures);
   }
 }
 
@@ -359,9 +465,11 @@ function formatCooldown(ms: number): string {
  * After this, incoming updates for the channel re-init pts from the server
  * and gap detection effectively restarts from a clean slate.
  */
-function circuitBreakChannel(channelId: string): void {
+async function circuitBreakChannel(channelId: string): Promise<void> {
+  await ensurePersistenceInitialized();
   const now = Date.now();
-  const record = channelFailures.get(channelId);
+  const failures = getChannelFailures();
+  const record = failures.get(channelId);
   if (!record) return;
 
   record.breakCount++;
@@ -385,6 +493,8 @@ function circuitBreakChannel(channelId: string): void {
 
     // Reset failure counter after breaking
     record.timestamps = [];
+    await savePersistedState(failures);
+    updateCircuitBrokenCache();
   } catch (e: unknown) {
     getLogger().error("[channelGapBreaker] operation failed:", e);
   }
@@ -530,8 +640,10 @@ function tryGetClient(): unknown {
  * breakCount, the cooldown stays at the escalated level, keeping log noise
  * and wasted API calls to a minimum for chronically broken channels.
  */
-export function resetCircuitBreaker(): void {
-  for (const [channelId, record] of channelFailures) {
+export async function resetCircuitBreaker(): Promise<void> {
+  await ensurePersistenceInitialized();
+  const failures = getChannelFailures();
+  for (const [channelId, record] of failures) {
     record.timestamps = [];
     record.brokenAt = null;
     // breakCount is intentionally preserved
@@ -540,6 +652,8 @@ export function resetCircuitBreaker(): void {
     // point the escalated cooldown is correct behavior (the channel has
     // a history of repeated breaks).
   }
+  await savePersistedState(failures);
+  updateCircuitBrokenCache();
 }
 
 /**
@@ -551,25 +665,31 @@ export function resetCircuitBreaker(): void {
  *
  * Called periodically (e.g., via cron) to bound the map size.
  */
-export function cleanupStaleChannels(): number {
+export async function cleanupStaleChannels(): Promise<number> {
+  await ensurePersistenceInitialized();
+  const failures = getChannelFailures();
   const now = Date.now();
   // 7 days - channels that haven't failed in a week and were never circuit-broken
   const CLEANUP_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
   let removed = 0;
-  for (const [channelId, record] of channelFailures) {
+  for (const [channelId, record] of failures) {
     if (record.breakCount === 0 && record.brokenAt === null && record.timestamps.length === 0) {
       // This shouldn't happen, but defensive check
-      channelFailures.delete(channelId);
+      failures.delete(channelId);
       removed++;
     } else if (record.breakCount === 0 && record.brokenAt === null && record.timestamps.length > 0) {
       // Check if all timestamps are old
       const allOld = record.timestamps.every((t) => now - t >= CLEANUP_WINDOW_MS);
       if (allOld) {
-        channelFailures.delete(channelId);
+        failures.delete(channelId);
         removed++;
       }
     }
     // Note: channels with breakCount > 0 are NEVER removed to preserve escalation history
+  }
+  if (removed > 0) {
+    await savePersistedState(failures);
+    updateCircuitBrokenCache();
   }
   return removed;
 }
