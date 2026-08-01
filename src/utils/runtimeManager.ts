@@ -175,7 +175,7 @@ async function resolvePendingSwitchNotification(
 
 async function startFreshRuntime(): Promise<TeleBoxRuntime> {
   // Reset channel gap circuit-breaker state for the new runtime
-  resetCircuitBreaker();
+  await resetCircuitBreaker();
   const runtime = await buildRuntime();
   currentRuntime = runtime;
   try {
