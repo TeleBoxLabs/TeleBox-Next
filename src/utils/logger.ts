@@ -3,7 +3,7 @@ import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
 import dayjs from "dayjs";
 import util from "util";
-import { recordChannelGapFailure, isChannelCircuitBroken } from "@utils/channelGapBreaker";
+import { recordChannelGapFailure, isChannelCircuitBrokenSync } from "@utils/channelGapBreaker";
 
 export enum LogLevel {
   DEBUG = 0,
@@ -251,8 +251,9 @@ class Logger {
 
     const channelId = this.extractChannelId(msg);
     if (channelId) {
-      recordChannelGapFailure(channelId, msg);
-      if (isChannelCircuitBroken(channelId)) return true;
+      // Fire-and-forget async recording; sync check uses cached state
+      void recordChannelGapFailure(channelId, msg);
+      if (isChannelCircuitBrokenSync(channelId)) return true;
     }
     const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
     const now = Date.now();
