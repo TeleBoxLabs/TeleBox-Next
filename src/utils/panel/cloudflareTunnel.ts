@@ -2,6 +2,7 @@
  * TeleBox Panel — Cloudflare Tunnel (cloudflared) manager.
  * Auto-starts cloudflared, captures the trycloudflare.com URL.
  * Auto-downloads cloudflared binary if not present.
+ * Auto-restarts on unexpected exit with exponential backoff.
  */
 
 import { spawn, ChildProcess } from "child_process";
@@ -13,6 +14,12 @@ let tunnelProc: ChildProcess | null = null;
 let capturedUrl: string | null = null;
 let urlResolve: ((url: string) => void) | null = null;
 let starting = false;
+let intentionalStop = false;
+let restartAttempts = 0;
+let restartTimeout: NodeJS.Timeout | null = null;
+const MAX_RESTART_ATTEMPTS = 10;
+const BASE_RESTART_DELAY_MS = 5000;
+const MAX_RESTART_DELAY_MS = 300000; // 5 minutes
 
 const ASSETS_DIR = path.join(process.cwd(), "assets", "panel", "cloudflared");
 const BINARY_PATH = path.join(ASSETS_DIR, "cloudflared");
@@ -129,6 +136,30 @@ async function ensureCloudflared(): Promise<string> {
   return downloadCloudflared();
 }
 
+function scheduleRestart(port: number): void {
+  if (restartTimeout) {
+    clearTimeout(restartTimeout);
+  }
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    logger.error(`[panel-tunnel] Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached, giving up`);
+    capturedUrl = null;
+    return;
+  }
+  restartAttempts++;
+  const delay = Math.min(BASE_RESTART_DELAY_MS * Math.pow(2, restartAttempts - 1), MAX_RESTART_DELAY_MS);
+  logger.info(`[panel-tunnel] Scheduling restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS} in ${delay}ms`);
+  restartTimeout = setTimeout(() => {
+    restartTimeout = null;
+    if (!intentionalStop) {
+      logger.info(`[panel-tunnel] Attempting auto-restart...`);
+      startTunnel(port).catch((err) => {
+        logger.error("[panel-tunnel] Auto-restart failed:", err);
+        // scheduleRestart will be called again from the exit handler
+      });
+    }
+  }, delay);
+}
+
 export async function startTunnel(port: number): Promise<string> {
   if (starting) {
     // Wait for existing start to complete
@@ -150,6 +181,7 @@ export async function startTunnel(port: number): Promise<string> {
   }
 
   starting = true;
+  intentionalStop = false; // Allow auto-restart for new tunnel
   stopTunnel(); // Clean up any old process
 
   const bin = await ensureCloudflared();
@@ -165,6 +197,7 @@ export async function startTunnel(port: number): Promise<string> {
       const url = await startTunnelOnce(bin, port);
       if (url) {
         starting = false;
+        restartAttempts = 0; // Reset restart attempts on successful start
         return url;
       }
     } catch (e: unknown) {
@@ -273,6 +306,11 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
           urlResolve = null;
           reject(new Error(`cloudflared exited with code ${code}`));
         }
+
+        // Auto-restart on unexpected exit (not intentional stop)
+        if (!intentionalStop && capturedUrl) {
+          scheduleRestart(port);
+        }
       });
 
       // Also handle the case where process stays alive but URL takes longer
@@ -325,6 +363,11 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
 }
 
 export function stopTunnel(): void {
+  intentionalStop = true;
+  if (restartTimeout) {
+    clearTimeout(restartTimeout);
+    restartTimeout = null;
+  }
   if (tunnelProc && !tunnelProc.killed) {
     try {
       tunnelProc.kill("SIGTERM");
@@ -335,6 +378,7 @@ export function stopTunnel(): void {
   }
   capturedUrl = null;
   starting = false;
+  restartAttempts = 0;
 }
 
 export function getTunnelUrl(): string | null {
