@@ -45,13 +45,14 @@ interface HealthConfig {
   busyDeferMaxMs: number;
   lastActionAt: number | null;
   configVersion: number;
+  disableHardRestart: boolean;
 }
 
 const DEFAULT_CONFIG: HealthConfig = {
   leakfixEnabled: false,
-  memoryThreshold: 150,
-  rssThreshold: 512,
-  runtimeGrowthThreshold: 120,
+  memoryThreshold: 300,
+  rssThreshold: 3072,
+  runtimeGrowthThreshold: 300,
   baselineHeapUsed: null,
   baselineRss: null,
   baselineMode: "on-enable",
@@ -61,7 +62,8 @@ const DEFAULT_CONFIG: HealthConfig = {
   actionCooldownMs: DEFAULT_COOLDOWN_MS,
   busyDeferMaxMs: DEFAULT_BUSY_DEFER_MS,
   lastActionAt: null,
-  configVersion: 2,
+  configVersion: 3,
+  disableHardRestart: true,
 };
 
 let overThresholdStreak = 0;
@@ -77,8 +79,8 @@ async function initConfig() {
       dirty = true;
     }
   }
-  if ((db.data.configVersion ?? 0) < 2) {
-    db.data.configVersion = 2;
+  if ((db.data.configVersion ?? 0) < 3) {
+    db.data.configVersion = 3;
     dirty = true;
   }
   if (dirty) await db.write();
@@ -111,24 +113,24 @@ function parseBaselineMode(input?: string): HealthConfig["baselineMode"] | null 
 
 function applyMemoryPreset(config: HealthConfig, preset: "safe" | "normal" | "aggressive"): void {
   if (preset === "safe") {
-    config.memoryThreshold = 120;
-    config.rssThreshold = 420;
-    config.runtimeGrowthThreshold = 80;
+    config.memoryThreshold = 200;
+    config.rssThreshold = 2048;
+    config.runtimeGrowthThreshold = 200;
     config.softStreak = 2;
     config.hardStreak = 3;
     return;
   }
   if (preset === "aggressive") {
-    config.memoryThreshold = 220;
-    config.rssThreshold = 768;
-    config.runtimeGrowthThreshold = 180;
+    config.memoryThreshold = 400;
+    config.rssThreshold = 4096;
+    config.runtimeGrowthThreshold = 400;
     config.softStreak = 3;
     config.hardStreak = 4;
     return;
   }
-  config.memoryThreshold = 150;
-  config.rssThreshold = 512;
-  config.runtimeGrowthThreshold = 120;
+  config.memoryThreshold = 300;
+  config.rssThreshold = 3072;
+  config.runtimeGrowthThreshold = 300;
   config.softStreak = DEFAULT_STREAK_SOFT;
   config.hardStreak = DEFAULT_STREAK_HARD;
 }
@@ -397,6 +399,18 @@ async function healthMonitorTask() {
       }
 
       logger.info("[Health] hard streak 达到，process.exit");
+      if (config.disableHardRestart) {
+        logger.info("[Health] hard restart disabled, skipping process.exit");
+        await notifyMe(
+          `⚠️ <b>内存持续偏高，但已禁用硬重启</b>\n\n` +
+            `清理和软重载后内存还是偏高，但配置了不自动重启进程。\n` +
+            `建议手动检查或重启。\n` +
+            `• 程序内存：<code>${after.heapUsed.toFixed(2)} MB</code>\n` +
+            `• 总占用：<code>${after.rss.toFixed(2)} MB</code>`,
+          config.silentEnabled,
+        );
+        return;
+      }
       await notifyMe(
         `⚠️ <b>准备重启程序</b>\n\n` +
           `清理和软重载后内存还是偏高，马上整进程重启。\n` +
@@ -411,13 +425,23 @@ async function healthMonitorTask() {
     } catch (reloadError: unknown) {
       logger.error("[Health] reloadRuntime 失败:", reloadError);
       if (!reloaded && overThresholdStreak >= hardNeed) {
-        await notifyMe(
-          `⚠️ <b>软重载失败，准备重启</b>\n\n自动整理没成功，将直接重启程序（PM2 会自动拉起）。`,
-          config.silentEnabled,
-        );
-        config.lastActionAt = Date.now();
-        await configDB.write();
-        scheduleTrackedTimeout(() => process.exit(0), 1500);
+        if (config.disableHardRestart) {
+          logger.info("[Health] hard restart disabled, skipping process.exit after reload failure");
+          await notifyMe(
+            `<b>软重载失败，但已禁用硬重启</b>\n\n` +
+              `自动整理没成功，但配置了不自动重启进程。\n` +
+              `建议手动检查或重启。`,
+            config.silentEnabled,
+          );
+        } else {
+          await notifyMe(
+            `<b>软重载失败，准备重启</b>\n\n自动整理没成功，将直接重启程序（PM2 会自动拉起）。`,
+            config.silentEnabled,
+          );
+          config.lastActionAt = Date.now();
+          await configDB.write();
+          scheduleTrackedTimeout(() => process.exit(0), 1500);
+        }
       }
     }
   } catch (error: unknown) {
@@ -596,6 +620,21 @@ class HealthPlugin extends Plugin {
             ),
           });
         }
+      } else if (subCmd === "hardrestart") {
+        const hardRestartCmd = parts[2]?.toLowerCase() || "help";
+        if (hardRestartCmd === "on" || hardRestartCmd === "off") {
+          configDB.data.disableHardRestart = hardRestartCmd === "off";
+          await configDB.write();
+          await msg.edit({
+            text: html(`${configDB.data.disableHardRestart ? "🛑 已禁用硬重启：内存持续偏高时不再自动重启进程" : "✅ 已启用硬重启：内存持续偏高时会自动重启进程（PM2 会拉起）"}`),
+          });
+        } else {
+          await msg.edit({
+            text: html(
+              `<b>硬重启设置</b>：${configDB.data.disableHardRestart ? "禁用（不自动重启）" : "启用（自动重启）"}\n• <code>${mainPrefix}memory hardrestart on</code> — 启用硬重启\n• <code>${mainPrefix}memory hardrestart off</code> — 禁用硬重启`,
+            ),
+          });
+        }
       } else if (subCmd === "status" || subCmd === "s") {
         const memory = getMemoryUsage();
         const growth = getGrowthStatus(configDB.data, memory);
@@ -617,6 +656,7 @@ class HealthPlugin extends Plugin {
             `📊 <b>内存守护状态</b>\n\n` +
               `🛡 自动保护：${configDB.data.leakfixEnabled ? "✅ 已打开" : "❌ 未打开"}\n` +
               `🔔 私信通知：${configDB.data.silentEnabled ? "关闭（静默）" : "开启"}\n` +
+              `🔁 硬重启：${configDB.data.disableHardRestart ? "禁用（不自动重启）" : "启用（自动重启）"}\n` +
               `🚦 总体：${level.emoji} ${level.text}\n` +
               `🧵 正在进行的任务：<code>${busy}</code> 个\n` +
               `📈 连续偏高次数：<code>${overThresholdStreak}</code>\n` +
