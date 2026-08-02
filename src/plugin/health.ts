@@ -14,20 +14,8 @@ import {
 } from "@utils/runtimeManager";
 import { logger } from "@utils/logger";
 import { htmlEscape } from "@utils/htmlEscape";
-import v8 from "v8";
 import { getErrorMessage } from "@utils/errorHelpers";
 import { isSwitchInProgress } from "@utils/versionSwitchProgress";
-
-// Cache registry for memory diagnostics
-const cacheRegistry = new Map<string, { getSize: () => number; maxSize: number }>();
-
-export function registerCache(name: string, getSize: () => number, maxSize: number): void {
-  cacheRegistry.set(name, { getSize, maxSize });
-}
-
-export function getCacheRegistry(): Map<string, { getSize: () => number; maxSize: number }> {
-  return cacheRegistry;
-}
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -489,10 +477,6 @@ const HELP_TEXT = `🩺 <b>Health · 内存守护</b>
   更宽松：少打扰（插件很多、内存本来就高时用）
 • <code>${mainPrefix}memory silent on</code> / <code>off</code>
   自动处理时要不要私信通知你（默认会通知「收藏夹/Saved Messages」）
-• <code>${mainPrefix}memory inspect</code>
-  深度诊断：V8 堆空间、各缓存占用、CPU 资源等
-• <code>${mainPrefix}memory caches</code>
-  查看各缓存使用量和上限
 
 ————————
 ⚙️ <b>进阶（一般不用改）</b>
@@ -702,68 +686,6 @@ class HealthPlugin extends Plugin {
             ),
           });
         }
-      } else if (subCmd === "inspect" || subCmd === "i") {
-        const memory = getMemoryUsage();
-        const heapStats = v8.getHeapStatistics();
-        const heapSpaces = v8.getHeapSpaceStatistics();
-
-        let spaceLines = "";
-        for (const space of heapSpaces) {
-          const used = space.space_used_size / 1024 / 1024;
-          const total = space.space_size / 1024 / 1024;
-          if (used > 0.5) {
-            spaceLines += `• ${space.space_name}：<code>${used.toFixed(2)} MB</code> / <code>${total.toFixed(2)} MB</code>\n`;
-          }
-        }
-
-        const usage = process.resourceUsage ? process.resourceUsage() : null;
-
-        await msg.edit({
-          text: html(
-            `🔍 <b>TeleBox-Next 内存深度诊断</b>\n\n` +
-            `📦 <b>进程概览</b>\n` +
-            `• 程序内存（Heap）：<code>${memory.heapUsed.toFixed(2)} MB</code> / <code>${memory.heapTotal.toFixed(2)} MB</code>\n` +
-            `• 总占用（RSS）：<code>${memory.rss.toFixed(2)} MB</code>\n` +
-            `• 外部内存：<code>${memory.external.toFixed(2)} MB</code>\n` +
-            `• ArrayBuffer：<code>${memory.arrayBuffers.toFixed(2)} MB</code>\n\n` +
-            `🧠 <b>V8 堆空间分布</b>\n` +
-            `• 堆大小限制：<code>${(heapStats.heap_size_limit / 1024 / 1024).toFixed(0)} MB</code>\n` +
-            `• 堆已用：<code>${(heapStats.used_heap_size / 1024 / 1024).toFixed(2)} MB</code>\n` +
-            `• 堆总容量：<code>${(heapStats.total_heap_size / 1024 / 1024).toFixed(2)} MB</code>\n` +
-            `• 物理页：<code>${(heapStats.total_physical_size / 1024 / 1024).toFixed(2)} MB</code>\n` +
-            `• 全局回收待定：<code>${(heapStats.total_global_handles_size / 1024 / 1024).toFixed(2)} MB</code>\n` +
-            `• malloc 内存：<code>${(heapStats.malloced_memory / 1024 / 1024).toFixed(2)} MB</code>\n\n` +
-            `📊 <b>各空间占用（>0.5 MB）</b>\n${spaceLines}\n` +
-            `📎 <b>其他信息</b>\n` +
-            `• 保护状态：${configDB.data.leakfixEnabled ? "✅ 开" : "❌ 关"}\n` +
-            `• 对比起点：${formatMb(configDB.data.baselineHeapUsed)} → 涨了 ${formatMb(memory.heapUsed - (configDB.data.baselineHeapUsed ?? 0))}\n` +
-            `• 连续偏高：<code>${overThresholdStreak}</code> 次\n` +
-            `• 正在进行的任务：<code>${getBusyTaskCount()}</code> 个\n` +
-            (usage ? `\n⚙️ <b>系统资源</b>\n• CPU 用户态：${(usage.userCPUTime / 1e6).toFixed(1)} ms\n• CPU 系统态：${(usage.systemCPUTime / 1e6).toFixed(1)} ms\n• 最大驻留集：${(usage.maxRSS / 1024 / 1024).toFixed(1)} MB` : "") +
-            `\n💡 建议：<code>${mainPrefix}memory set safe</code> 更敏感 / <code>${mainPrefix}memory set aggressive</code> 更宽松`
-          ),
-        });
-      } else if (subCmd === "caches" || subCmd === "c") {
-        let cacheLines = "";
-        let totalEntries = 0;
-        for (const [name, { getSize, maxSize }] of getCacheRegistry()) {
-          const size = getSize();
-          totalEntries += size;
-          const bar = "█".repeat(Math.min(Math.round(size / maxSize * 20), 20)).padEnd(20, "░");
-          cacheLines += `• <b>${name}</b><code> ${size.toLocaleString()}</code> / <code>${maxSize.toLocaleString()}</code> ${bar} ${(size / maxSize * 100).toFixed(1)}%\n`;
-        }
-
-        if (!cacheLines) {
-          cacheLines = "暂无已注册的缓存。\n";
-        }
-
-        await msg.edit({
-          text: html(
-            `📦 <b>缓存使用情况</b>\n` +
-            `共 ${getCacheRegistry().size} 个缓存，${totalEntries.toLocaleString()} 条记录\n\n${cacheLines}\n` +
-            `💡 使用 <code>${mainPrefix}memory inspect</code> 查看详细内存诊断`
-          ),
-        });
       } else {
         await msg.edit({ text: html(HELP_TEXT) });
       }

@@ -7,6 +7,21 @@ import { logger } from "@utils/logger";
 import { withRetry } from "@utils/asyncHelpers";
 import type { ClientInternals } from "./clientInternals";
 
+/** 检查错误是否为 current_user 数据损坏导致的 RangeError */
+function isCorruptedCurrentUserError(e: unknown): boolean {
+  return e instanceof RangeError && /Offset is outside the bounds of the DataView/i.test(e.message);
+}
+
+/** 清理损坏的 current_user 存储，使后续 _prepare 能正常通过 */
+async function clearCorruptedCurrentUser(client: TelegramClient): Promise<void> {
+  try {
+    await client.storage.self.store(null);
+    logger.warn("[loginManager] Cleared corrupted current_user from storage");
+  } catch {
+    /* ignore - best effort cleanup */
+  }
+}
+
 /** Installs a process SIGINT guard that exits cleanly during interactive login.
  *  readline.createInterface captures stdin in raw mode and intercepts SIGINT
  *  as a line-editing event; without this handler ctrl+c does nothing. */
@@ -140,7 +155,25 @@ export async function initializeClientSession(
       return { meId: me.id ? String(me.id) : undefined };
     }
   } catch (e: unknown) {
-    logger.error("[loginManager] operation failed:", e);
+    // 根因：current_user 数据损坏（单字节 \x01）导致 _prepare 阶段 RangeError
+    // 清理后可直接进入交互式登录流程
+    if (isCorruptedCurrentUserError(e)) {
+      logger.warn("[loginManager] Detected corrupted current_user, clearing and retrying...");
+      await clearCorruptedCurrentUser(client);
+      // 单次重试，不再走 withRetry 避免过长等待
+      try {
+        const me = await client.start();
+        if (me) {
+          logger.info(`✅ Login after cleanup: ${me.displayName}.`);
+          closeReadlineInterface();
+          return { meId: me.id ? String(me.id) : undefined };
+        }
+      } catch (e2: unknown) {
+        logger.error("[loginManager] Retry after cleanup failed:", e2);
+      }
+    } else {
+      logger.error("[loginManager] operation failed:", e);
+    }
   }
 
   throwIfAborted(lifecycle);

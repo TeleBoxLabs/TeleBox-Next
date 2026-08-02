@@ -42,7 +42,7 @@ if (majorVersion >= 22) {
 
 const r = spawnSync(
   process.execPath,
-  ['--max-old-space-size=768', '--expose-gc', tsxCli, '-r', 'tsconfig-paths/register', ...entryArgs],
+  [tsxCli, '-r', 'tsconfig-paths/register', ...entryArgs],
   { cwd: root, env, stdio: 'inherit' }
 );
 process.exit(r.status === null ? 1 : r.status);

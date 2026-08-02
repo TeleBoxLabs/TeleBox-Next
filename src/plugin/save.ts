@@ -15,7 +15,6 @@ import type { MessageMedia, Photo, Video, Audio, Voice, Sticker, Document, User,
 import type { TelegramClient } from "@mtcute/node";
 import type { InputPeerLike } from "@mtcute/core";
 import { htmlEscape } from "@utils/htmlEscape";
-import { registerCache } from "./health";
 
 
 const prefixes = getPrefixes();
@@ -83,8 +82,6 @@ class SavePlugin extends Plugin {
 
   async setup(): Promise<void> {
     await this.initDB();
-    registerCache("save.lastEditText", () => this.lastEditText.size, this.CACHE_MAX_EDIT_TEXT);
-    registerCache("save.chatDisplayName", () => this.chatDisplayNameCache.size, this.CACHE_MAX_DISPLAY_NAME);
   }
 
   name = "save";
@@ -95,17 +92,6 @@ class SavePlugin extends Plugin {
   private lastEditText: Map<string, string> = new Map();
   private chatDisplayNameCache: Map<string, string> = new Map();
   private activeTempFiles: Set<string> = new Set();
-
-  private readonly CACHE_MAX_EDIT_TEXT = 5000;
-  private readonly CACHE_MAX_DISPLAY_NAME = 2000;
-
-  private setBounded<K, V>(map: Map<K, V>, key: K, value: V, maxSize: number): void {
-    if (map.size >= maxSize) {
-      const firstKey = map.keys().next().value;
-      if (firstKey !== undefined) map.delete(firstKey);
-    }
-    map.set(key, value);
-  }
 
   private isLocalTarget(target: string): boolean {
     return target.trim().toLowerCase() === "local";
@@ -247,10 +233,10 @@ class SavePlugin extends Plugin {
           : [(peer as User).firstName, (peer as User).lastName].filter(Boolean).join(' ').trim() || (peer as User).username;
 
       const resolvedName = title ? String(title) : chatId;
-      this.setBounded(this.chatDisplayNameCache, chatId, resolvedName, this.CACHE_MAX_DISPLAY_NAME);
+      this.chatDisplayNameCache.set(chatId, resolvedName);
       return resolvedName;
     } catch {
-      this.setBounded(this.chatDisplayNameCache, chatId, chatId, this.CACHE_MAX_DISPLAY_NAME);
+      this.chatDisplayNameCache.set(chatId, chatId);
       return chatId;
     }
   }
@@ -372,11 +358,11 @@ class SavePlugin extends Plugin {
 
     try {
       await msg.edit({ text: html(safeText) });
-      this.setBounded(this.lastEditText, msgId, safeText, this.CACHE_MAX_EDIT_TEXT);
+      this.lastEditText.set(msgId, safeText);
     } catch (err: unknown) {
       const errMsg = getErrorMessage(err);
       if (errMsg.includes('MESSAGE_NOT_MODIFIED')) {
-        this.setBounded(this.lastEditText, msgId, safeText, this.CACHE_MAX_EDIT_TEXT);
+        this.lastEditText.set(msgId, safeText);
         return;
       }
       throw err;
