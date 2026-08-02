@@ -1513,7 +1513,7 @@ export async function updateAllPlugins(
       return { failedCount: 0, statusPeerId: skipPeerId, statusMsgId: skipMsgId };
     }
 
-    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)${skipCount > 0 ? `\\n💡 跳过含本地已修改的插件，强制覆盖: <code>${mainPrefix}tpm update -f</code>` : ""}`;
+    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)${skipCount > 0 ? `\n💡 跳过含本地已修改的插件，强制覆盖: <code>${mainPrefix}tpm update -f</code>` : ""}`;
     const statusPeerId = statusMsg.chat?.id;
     const statusMsgId = statusMsg.id;
     if (silent) {
