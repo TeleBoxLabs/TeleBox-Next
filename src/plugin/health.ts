@@ -16,6 +16,8 @@ import { logger } from "@utils/logger";
 import { htmlEscape } from "@utils/htmlEscape";
 import { getErrorMessage } from "@utils/errorHelpers";
 import { isSwitchInProgress } from "@utils/versionSwitchProgress";
+import v8 from "v8";
+import fs from "fs";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -685,6 +687,16 @@ class HealthPlugin extends Plugin {
                 `重记：<code>${mainPrefix}memory reset</code>`,
             ),
           });
+        }
+      } else if (subCmd === "snapshot") {
+        try {
+          const snapshotsDir = createDirectoryInAssets("health", ["snapshots"]);
+          const file = path.join(snapshotsDir, `heap-${Date.now()}.heapsnapshot`);
+          v8.writeHeapSnapshot(file);
+          const stats = fs.statSync(file);
+          await msg.edit({ text: html(`✅ <b>堆快照已保存</b>\n<code>${file}</code>\n大小：${(stats.size / 1024 / 1024).toFixed(1)} MB`) });
+        } catch (e: unknown) {
+          await msg.edit({ text: html(`❌ 快照失败：${htmlEscape(getErrorMessage(e) || String(e))}`) });
         }
       } else {
         await msg.edit({ text: html(HELP_TEXT) });
