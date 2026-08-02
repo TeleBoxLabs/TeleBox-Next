@@ -1,5 +1,5 @@
 import type { Message, InputPeerLike } from "@mtcute/core";
-import type { TelegramClient } from "@mtcute/core/highlevel/client";
+import type { TelegramClient } from "@mtcute/core/client.js";
 import type { MessageContext } from "@mtcute/dispatcher";
 
 function isUndefinedDateCrash(error: unknown): boolean {
@@ -62,7 +62,7 @@ export async function safeGetMessages(
     let result: Message[];
     if (ids !== undefined) {
       const fetched = await client.getMessages(entity, ids);
-      result = fetched.filter((m): m is Message => m != null);
+      result = fetched.filter((m: Message | null): m is Message => m != null);
     } else if (offsetId !== undefined || limit !== undefined) {
       // History-scan path: paginate forward from the given offset.
       const fetched = await client.getHistory(entity, {
@@ -72,7 +72,7 @@ export async function safeGetMessages(
           : {}),
         ...(reverse !== undefined ? { reverse } : {}),
       });
-      result = fetched.filter((m): m is Message => m != null);
+      result = fetched.filter((m: Message | null): m is Message => m != null);
     } else {
       result = [];
     }

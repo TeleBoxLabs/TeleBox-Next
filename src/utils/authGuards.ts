@@ -1,4 +1,4 @@
-import type { TelegramClient } from "@mtcute/core/highlevel/client";
+import type { TelegramClient } from "@mtcute/node";
 import type { User } from "@mtcute/node";
 
 export function isAuthKeyUnregisteredError(error: unknown): boolean {
