@@ -1513,7 +1513,7 @@ export async function updateAllPlugins(
       return { failedCount: 0, statusPeerId: skipPeerId, statusMsgId: skipMsgId };
     }
 
-    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)${skipCount > 0 ? `\n💡 跳过含本地已修改的插件，强制覆盖: <code>${mainPrefix}tpm update -f</code>` : ""}`;
+    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
     const statusPeerId = statusMsg.chat?.id;
     const statusMsgId = statusMsg.id;
     if (silent) {
@@ -1624,7 +1624,6 @@ class TpmPlugin extends Plugin {
 
 <b>🔄 更新插件:</b>
 • <code>${mainPrefix}tpm update</code> (别名: <code>updateAll</code>, <code>ua</code>) - 一键更新所有已安装的远程插件
-• <code>${mainPrefix}tpm update -f</code> - 强制更新（覆盖本地修改过的插件）
 
 <b>🗑️ 卸载插件:</b>
 • <code>${mainPrefix}tpm rm [插件名]</code> (别名: <code>remove</code>, <code>uninstall</code>, <code>un</code>) - 卸载单个插件
