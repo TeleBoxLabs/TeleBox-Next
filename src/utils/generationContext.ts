@@ -44,7 +44,7 @@ interface TaskEntry {
 type TimerHandle = ReturnType<typeof setTimeout>;
 type IntervalHandle = ReturnType<typeof setInterval>;
 
-const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
+const DEFAULT_DRAIN_TIMEOUT_MS = 60_000;
 
 function toError(reason: unknown): Error {
   if (reason instanceof Error) return reason;

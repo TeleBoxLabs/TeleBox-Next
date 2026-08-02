@@ -38,8 +38,8 @@ export interface TeleBoxRuntime {
   dispatcher?: import("@mtcute/dispatcher").Dispatcher;
 }
 
-const RUNTIME_DRAIN_TIMEOUT_MS = 15_000;
-const CLIENT_DESTROY_TIMEOUT_MS = 15_000;
+const RUNTIME_DRAIN_TIMEOUT_MS = 60_000;
+const CLIENT_DESTROY_TIMEOUT_MS = 30_000;
 
 let currentRuntime: TeleBoxRuntime | null = null;
 let transitionPromise: Promise<TeleBoxRuntime | void> | null = null;
