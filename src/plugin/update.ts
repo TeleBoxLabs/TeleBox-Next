@@ -9,6 +9,7 @@ import { executeExit } from "./reload";
 import { logger } from "@utils/logger";
 import { getErrorMessage } from "@utils/errorHelpers";
 import { updateAllPlugins } from "./tpm";
+import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -17,6 +18,154 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 const execFileAsync = promisify(execFile);
+
+// ── Autofix state (cross-restart) ───────────────────────────────────────
+// autofix spans a restart: steps 1-3 (dedupe / reset / restart) run on the
+// OLD process; steps 4-5 (plugin update / summary) run on the NEW process.
+const AUTOFIX_STATE_FILE = path.join(os.homedir(), ".telebox", "autofix.json");
+
+interface AutofixState {
+  chatId: number;
+  msgId: number;
+  startTime: number;
+  removed: string[];
+}
+
+function saveAutofixState(state: AutofixState): void {
+  try {
+    fs.mkdirSync(path.dirname(AUTOFIX_STATE_FILE), { recursive: true });
+    fs.writeFileSync(AUTOFIX_STATE_FILE, JSON.stringify(state), "utf8");
+  } catch (e) {
+    logger.error("[autofix] 保存状态失败:", e);
+  }
+}
+
+function loadAutofixState(): AutofixState | null {
+  try {
+    if (!fs.existsSync(AUTOFIX_STATE_FILE)) return null;
+    const raw = JSON.parse(fs.readFileSync(AUTOFIX_STATE_FILE, "utf8"));
+    if (raw && typeof raw.chatId === "number" && typeof raw.msgId === "number") {
+      return raw as AutofixState;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function clearAutofixState(): void {
+  try {
+    if (fs.existsSync(AUTOFIX_STATE_FILE)) fs.unlinkSync(AUTOFIX_STATE_FILE);
+  } catch {
+    /* ignore */
+  }
+}
+
+function removeCollidingPlugins(): string[] {
+  const userDir = path.join(process.cwd(), "plugins");
+  const sysDir = path.join(process.cwd(), "src", "plugin");
+  if (!fs.existsSync(userDir) || !fs.existsSync(sysDir)) return [];
+
+  const sysNames = new Set(
+    fs.readdirSync(sysDir)
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => path.basename(f, ".ts")),
+  );
+
+  const removed: string[] = [];
+  for (const f of fs.readdirSync(userDir)) {
+    if (!f.endsWith(".ts")) continue;
+    const name = path.basename(f, ".ts");
+    if (sysNames.has(name)) {
+      try {
+        fs.unlinkSync(path.join(userDir, f));
+        removed.push(name);
+        logger.info(`[autofix] 移除与系统插件重名的插件: ${name}`);
+      } catch (e) {
+        logger.warn(`[autofix] 移除插件 ${name} 失败:`, e);
+      }
+    }
+  }
+  return removed;
+}
+
+/** Called from runtimeManager once the new runtime is fully online. */
+export async function resumeAutofix(): Promise<void> {
+  const state = loadAutofixState();
+  if (!state) return;
+  clearAutofixState();
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fakeMsg = { chat: { id: state.chatId }, id: state.msgId } as any;
+    await updateAllPlugins(fakeMsg, { silent: true });
+
+    const elapsedMs = Date.now() - state.startTime;
+    const client = await getGlobalClient();
+    await client.editMessage({
+      chatId: state.chatId,
+      message: state.msgId,
+      text: `✅ 修复成功，用时 ${elapsedMs}ms`,
+    });
+    logger.info(`[autofix] 修复完成，用时 ${elapsedMs}ms`);
+  } catch (e) {
+    logger.error("[autofix] 重启后续步骤失败:", e);
+    try {
+      const client = await getGlobalClient();
+      await client.editMessage({
+        chatId: state.chatId,
+        message: state.msgId,
+        text: `❌ 修复过程出错：${getErrorMessage(e) || String(e)}`,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function handleAutofix(msg: MessageContext): Promise<void> {
+  const startTime = Date.now();
+  await msg.edit({ text: "🔧 正在修复：移除重名插件…" });
+
+  try {
+    const removed = removeCollidingPlugins();
+
+    await msg.edit({ text: "🔧 正在修复：同步远程代码…" });
+    await gitExec(["fetch", "origin"]);
+    await gitExec(["reset", "--hard", "origin/main"]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chatId = (msg as any).chat?.id ?? (msg as any).chatId;
+    if (chatId == null || msg.id == null) {
+      throw new Error("无法定位当前消息，无法记录修复状态");
+    }
+    saveAutofixState({
+      chatId: Number(chatId),
+      msgId: msg.id,
+      startTime,
+      removed,
+    });
+
+    await msg.edit({ text: "🔧 代码已同步，正在重启并更新插件…" });
+    logger.info("[autofix] 步骤 1-3 完成，重启进程…");
+    process.exit(0);
+  } catch (error: unknown) {
+    clearAutofixState();
+    const detail = getErrorMessage(error) || String(error);
+    logger.error("[autofix] 修复失败:", detail);
+    try {
+      await msg.edit({ text: `❌ 修复失败：${detail}` });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+// ── Version helper ──────────────────────────────────────────────────────
+async function handleVersion(msg: MessageContext): Promise<void> {
+  const version = readDisplayVersion();
+  await msg.edit({ text: `📦 TeleBox-Next <code>${version}</code>` });
+}
 
 // ── Auto-update state ──────────────────────────────────────────────────
 const AUTO_UPDATE_STATE_DIR = path.join(os.homedir(), ".telebox");
@@ -883,11 +1032,23 @@ class UpdatePlugin extends Plugin {
   description: string =
     `更新项目：拉取最新代码并安装依赖\n` +
     `<code>${mainPrefix}update -f/-force</code> 强制更新（package.json 变更时自动启用）\n` +
-    `<code>${mainPrefix}update auto on</code> / <code>off</code> 自动更新开关（默认关闭）`;
+    `<code>${mainPrefix}update auto on</code> / <code>off</code> 自动更新开关（默认关闭）\n` +
+    `<code>${mainPrefix}update autofix</code> 一键修复：移除重名插件 → 硬同步远程代码 → 重启 → 更新插件\n` +
+    `<code>${mainPrefix}update ver</code> / <code>version</code> 查看当前版本`;
 
   cmdHandlers: Record<string, (msg: MessageContext) => Promise<void>> = {
     update: async (msg) => {
       const parts = msg.text.slice(1).split(" ").slice(1);
+
+      if (parts[0] === "autofix") {
+        await handleAutofix(msg);
+        return;
+      }
+
+      if (parts[0] === "ver" || parts[0] === "version") {
+        await handleVersion(msg);
+        return;
+      }
 
       if (parts[0] === "auto") {
         const sub = parts[1]?.toLowerCase();
