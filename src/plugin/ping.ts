@@ -67,7 +67,7 @@ function parseProxyUrl(raw: string): PingProxy | null {
  */
 async function resolvePingProxy(): Promise<PingProxy | null> {
   try {
-    const { getApiConfig } = await import("@utils/apiConfig");
+    const { getApiConfig } = require("@utils/apiConfig");
     const api = await getApiConfig();
     const p = api?.proxy as
       | {
