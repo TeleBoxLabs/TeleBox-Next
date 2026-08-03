@@ -24,7 +24,7 @@ fs.mkdirSync(path.dirname(lsFile), { recursive: true });
 const nodeVersion = process.versions.node.split('.').map(Number);
 const majorVersion = nodeVersion[0];
 
-const tsxCli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+const esbuildRegister = path.join(__dirname, 'esbuild-register.cjs');
 const entryArgs = process.argv.slice(2);
 if (entryArgs.length === 0) {
   console.error('usage: node scripts/run-tsx.cjs <script.ts> [args...]');
@@ -40,9 +40,19 @@ if (majorVersion >= 22) {
   env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
 }
 
+// Limit V8 heap to 256 MB — target RSS ~150 MB, heap ~100 MB.
+// Without this, V8 can grow heap unbounded (observed 400+ MB RSS during
+// active channel hours). The native AES-IGE provider removes the WASM
+// linear memory (~100 MB) and mem.slice() churn, so 256 MB heap is ample.
+const heapFlag = '--max-old-space-size=256';
+const existingOpts = (env.NODE_OPTIONS || '').trim();
+env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
+
+// Use esbuild-register instead of tsx to eliminate heap waste from
+// inline source maps, CJS polyfill duplication, and source string retention.
 const r = spawnSync(
   process.execPath,
-  [tsxCli, '-r', 'tsconfig-paths/register', ...entryArgs],
+  ['-r', 'tsconfig-paths/register', '-r', esbuildRegister, ...entryArgs],
   { cwd: root, env, stdio: 'inherit' }
 );
 process.exit(r.status === null ? 1 : r.status);
