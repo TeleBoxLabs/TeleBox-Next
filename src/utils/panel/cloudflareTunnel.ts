@@ -26,6 +26,45 @@ const BINARY_PATH = path.join(ASSETS_DIR, "cloudflared");
 const VERSION_FILE = path.join(ASSETS_DIR, "version.txt");
 const DOWNLOAD_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64";
 
+/**
+ * Kill orphaned cloudflared tunnel processes from previous bot instances.
+ * When the bot is OOM-killed or crashes, child cloudflared processes are
+ * left running indefinitely, accumulating memory. This scans for any
+ * cloudflared process spawned from our assets directory and kills it.
+ */
+function killOrphanedCloudflared(): void {
+  try {
+    const { execFileSync } = require("child_process");
+    // pgrep matches full command line; our cloudflared is invoked as
+    // "<assets>/panel/cloudflared/cloudflared tunnel --url http://localhost:..."
+    let pids: string[] = [];
+    try {
+      const out = execFileSync("pgrep", ["-f", `${BINARY_PATH} tunnel`], {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      if (out) pids = out.split("\n").filter(Boolean);
+    } catch {
+      // pgrep returns non-zero when no matches — that's fine
+      return;
+    }
+    const ownPid = process.pid;
+    for (const pidStr of pids) {
+      const pid = parseInt(pidStr, 10);
+      if (pid && pid !== ownPid) {
+        try {
+          process.kill(pid, "SIGTERM");
+          logger.info(`[panel-tunnel] killed orphaned cloudflared PID: ${pid}`);
+        } catch {
+          // Process may have already exited
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — best-effort cleanup
+  }
+}
+
 function ensureAssetsDir(): void {
   if (!fs.existsSync(ASSETS_DIR)) {
     fs.mkdirSync(ASSETS_DIR, { recursive: true });
@@ -182,7 +221,8 @@ export async function startTunnel(port: number): Promise<string> {
 
   starting = true;
   intentionalStop = false; // Allow auto-restart for new tunnel
-  stopTunnel(); // Clean up any old process
+  killOrphanedCloudflared(); // Kill leftover cloudflared from previous crashes/OOMs
+  stopTunnel(); // Clean up any old process reference
 
   const bin = await ensureCloudflared();
   logger.info(`[panel-tunnel] starting cloudflared on port ${port} via ${bin}`);
