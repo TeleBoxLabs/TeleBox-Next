@@ -69,7 +69,7 @@ const DEFAULT_CONFIG: HealthConfig = {
   actionCooldownMs: DEFAULT_COOLDOWN_MS,
   busyDeferMaxMs: DEFAULT_BUSY_DEFER_MS,
   lastActionAt: null,
-  configVersion: 3,
+  configVersion: 4,
   disableHardRestart: true,
 };
 
@@ -196,8 +196,20 @@ async function initHealthConfig() {
       dirty = true;
     }
   }
-  if ((db.data.configVersion ?? 0) < 3) {
-    db.data.configVersion = 3;
+  if ((db.data.configVersion ?? 0) < 4) {
+    // v4: raise thresholds to match --max-old-space-size=512 (V8 heap) +
+    // PM2 max-memory-restart=512M (RSS guard). Old configs persisted 256/512
+    // which triggered spurious soft-reloads at ~256 MB heap even though the
+    // actual V8 limit is 512 MB.
+    if ((db.data.memoryThreshold ?? 0) < DEFAULT_CONFIG.memoryThreshold) {
+      db.data.memoryThreshold = DEFAULT_CONFIG.memoryThreshold;
+      dirty = true;
+    }
+    if ((db.data.rssThreshold ?? 0) < DEFAULT_CONFIG.rssThreshold) {
+      db.data.rssThreshold = DEFAULT_CONFIG.rssThreshold;
+      dirty = true;
+    }
+    db.data.configVersion = 4;
     dirty = true;
   }
   if (dirty) await db.write();
