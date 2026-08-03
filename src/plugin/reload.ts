@@ -204,7 +204,7 @@ const HELP_TEXT = `🔄 Reload · 重载与重启
 • <code>${mainPrefix}pmr</code> — 让 PM2 直接重启本进程
 
 🩺 想管内存 / 自动保护？用：
-• <code>${mainPrefix}health</code> — 看内存
+• <code>${mainPrefix}memory health</code> — 看内存
 • <code>${mainPrefix}memory on</code> — 打开自动保护
 • <code>${mainPrefix}memory</code> — 完整说明（小白友好）
 `;
@@ -229,7 +229,7 @@ class ReloadPlugin extends Plugin {
         const runtime = await reloadRuntime();
         const loadTime = Date.now() - startTime;
         try {
-          const { noteReloadCompleted } = require("./health");
+          const { noteReloadCompleted } = require("./memory");
           await noteReloadCompleted();
         } catch (e: unknown) {
           logger.warn("[RELOAD] noteReloadCompleted:", e);
