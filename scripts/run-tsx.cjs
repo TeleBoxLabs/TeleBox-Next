@@ -44,7 +44,7 @@ if (majorVersion >= 22) {
 // Without this, V8 can grow heap unbounded (observed 400+ MB RSS during
 // active channel hours). The native AES-IGE provider removes the WASM
 // linear memory (~100 MB) and mem.slice() churn, so 192 MB heap is ample.
-const heapFlag = '--max-old-space-size=192';
+const heapFlag = '--max-old-space-size=256';
 const existingOpts = (env.NODE_OPTIONS || '').trim();
 env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
 
