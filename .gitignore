@@ -25,6 +25,9 @@ my_session/*
 .env.*
 /pmcaptcha_userdata
 
+# Runtime state (circuit breaker persistence)
+data/*
+
 # Build outputs
 dist/
 build/
