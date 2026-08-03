@@ -392,10 +392,13 @@ class Logger {
       // ChannelInvalidError: channel no longer accessible; keep retrying is futile
       // (synced from teleproto 0e8ac85)
       msg.includes('ChannelInvalidError') ||
+      // mtcute RPC error code for inaccessible channel
+      msg.includes('CHANNEL_INVALID') ||
       (msg.includes('fetchChannelDifference ') && (
         msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
         msg.includes('HISTORY_GET_FAILED') ||
-        msg.includes('ChannelInvalidError')
+        msg.includes('ChannelInvalidError') ||
+        msg.includes('CHANNEL_INVALID')
       )) ||
       (msg.includes('Could not find a matching Constructor') && msg.includes('recover'))
     );

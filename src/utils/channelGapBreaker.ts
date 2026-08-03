@@ -254,6 +254,7 @@ const FATAL_ERRORS = [
   'difference too long',
   'channelDifferenceTooLong',
   'Could not find a matching Constructor',
+  'CHANNEL_INVALID',
 ];
 
 /**
