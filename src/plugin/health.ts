@@ -50,9 +50,9 @@ interface HealthConfig {
 
 const DEFAULT_CONFIG: HealthConfig = {
   leakfixEnabled: false,
-  memoryThreshold: 300,
-  rssThreshold: 3072,
-  runtimeGrowthThreshold: 300,
+  memoryThreshold: 256,
+  rssThreshold: 512,
+  runtimeGrowthThreshold: 128,
   baselineHeapUsed: null,
   baselineRss: null,
   baselineMode: "on-enable",
@@ -113,24 +113,24 @@ function parseBaselineMode(input?: string): HealthConfig["baselineMode"] | null 
 
 function applyMemoryPreset(config: HealthConfig, preset: "safe" | "normal" | "aggressive"): void {
   if (preset === "safe") {
-    config.memoryThreshold = 200;
-    config.rssThreshold = 2048;
-    config.runtimeGrowthThreshold = 200;
+    config.memoryThreshold = 192;
+    config.rssThreshold = 384;
+    config.runtimeGrowthThreshold = 96;
     config.softStreak = 2;
     config.hardStreak = 3;
     return;
   }
   if (preset === "aggressive") {
-    config.memoryThreshold = 400;
-    config.rssThreshold = 4096;
-    config.runtimeGrowthThreshold = 400;
+    config.memoryThreshold = 320;
+    config.rssThreshold = 640;
+    config.runtimeGrowthThreshold = 192;
     config.softStreak = 3;
     config.hardStreak = 4;
     return;
   }
-  config.memoryThreshold = 300;
-  config.rssThreshold = 3072;
-  config.runtimeGrowthThreshold = 300;
+  config.memoryThreshold = 256;
+  config.rssThreshold = 512;
+  config.runtimeGrowthThreshold = 128;
   config.softStreak = DEFAULT_STREAK_SOFT;
   config.hardStreak = DEFAULT_STREAK_HARD;
 }

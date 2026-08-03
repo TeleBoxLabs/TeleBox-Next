@@ -40,11 +40,11 @@ if (majorVersion >= 22) {
   env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
 }
 
-// Limit V8 heap to 256 MB — target RSS ~150 MB, heap ~100 MB.
+// Limit V8 heap to 192 MB — target RSS ~150 MB, heap ~100 MB.
 // Without this, V8 can grow heap unbounded (observed 400+ MB RSS during
 // active channel hours). The native AES-IGE provider removes the WASM
-// linear memory (~100 MB) and mem.slice() churn, so 256 MB heap is ample.
-const heapFlag = '--max-old-space-size=256';
+// linear memory (~100 MB) and mem.slice() churn, so 192 MB heap is ample.
+const heapFlag = '--max-old-space-size=192';
 const existingOpts = (env.NODE_OPTIONS || '').trim();
 env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
 

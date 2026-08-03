@@ -8,6 +8,7 @@ import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "@utils/logger";
 import { patchTelegramClientHtmlCompat } from "../hook/patches/telegram.patch";
+import { NativeCryptoProvider } from "@utils/nativeCrypto";
 import path from "path";
 import fs from "fs";
 
@@ -204,6 +205,8 @@ export async function createMtcuteClient(): Promise<TelegramClient> {
 
   const transport = buildTransport(proxy);
 
+  const nativeCrypto = new NativeCryptoProvider();
+
   const client = new TelegramClient({
     apiId: api.api_id,
     apiHash: api.api_hash,
@@ -215,6 +218,7 @@ export async function createMtcuteClient(): Promise<TelegramClient> {
     updates: {
       catchUp: true,
     },
+    crypto: nativeCrypto,
     ...(transport ? { transport } : {}),
   });
 
