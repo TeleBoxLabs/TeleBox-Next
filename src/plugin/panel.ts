@@ -38,6 +38,7 @@ import { getOwnerId } from "@utils/panel/owner";
 import { isBotRunning } from "@utils/panel/botService";
 import { isHttpRunning, getHttpMeta } from "@utils/panel/httpServer";
 import { startTunnel, stopTunnel, getTunnelUrl, isTunnelRunning } from "@utils/panel/cloudflareTunnel";
+import { getMenuButtonState } from "@utils/panel/menuButton";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -80,6 +81,12 @@ async function statusText(): Promise<string> {
   const { isTunnelRunning, getTunnelUrl } = require("@utils/panel/cloudflareTunnel");
   const tunnelRunning = isTunnelRunning();
   const tunnelUrl = getTunnelUrl();
+  const mb = getMenuButtonState();
+  const menuBtnLine = mb.bound
+    ? `✅ ${htmlEscape(mb.url)}`
+    : mb.error
+      ? `❌ ${htmlEscape(mb.error)}`
+      : "未启用";
   const lines = [
     `<b>🎛️ Panel 状态</b>`,
     `• 开关: ${cfg.enabled ? "✅ 开" : "❌ 关"}`,
@@ -90,6 +97,7 @@ async function statusText(): Promise<string> {
     `• 显示名: ${htmlEscape(cfg.displayName || "TeleBox Panel")}`,
     `• Owner: ${ownerId ?? "未知"}`,
     `• 额外管理员: ${cfg.admins.length} 人`,
+    `• 菜单按钮: ${menuBtnLine}`,
   ];
   return lines.join("\n");
 }
