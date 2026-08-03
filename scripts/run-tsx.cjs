@@ -40,12 +40,14 @@ if (majorVersion >= 22) {
   env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
 }
 
-// Limit V8 heap to 256 MB — target RSS ~150 MB, heap ~100 MB.
+// Limit V8 heap to 512 MB — gives headroom for 125+ plugins + mtcute runtime.
 // Without this, V8 can grow heap unbounded (observed 400+ MB RSS during
 // active channel hours). The native AES-IGE provider removes the WASM
-// linear memory (~100 MB) and mem.slice() churn, so 256 MB heap is ample.
+// linear memory (~100 MB) and mem.slice() churn.
+// 256 MB was too tight (heap hit 246/256 MB under load). 512 MB gives safety
+// margin while PM2's max-memory-restart=512M still guards against RSS runaway.
 // Replace any existing --max-old-space-size to ensure our value takes effect.
-const heapFlag = '--max-old-space-size=256';
+const heapFlag = '--max-old-space-size=512';
 let existingOpts = (env.NODE_OPTIONS || '').trim();
 existingOpts = existingOpts.replace(/--max-old-space-size=\d+/g, '').trim();
 env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
