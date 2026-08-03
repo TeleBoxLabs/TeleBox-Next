@@ -45,6 +45,7 @@
     "@vitalets/google-translate-api": "^9.2.1",
     "archiver": "^8.0.0",
     "axios": "^1.18.1",
+    "esbuild": "^0.28.1",
     "better-sqlite3": "^13.0.1",
     "big-integer": "^1.6.52",
     "canvas": "^3.2.1",
