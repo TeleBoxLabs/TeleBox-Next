@@ -50,6 +50,18 @@ env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
 
 // Use esbuild-register instead of tsx to eliminate heap waste from
 // inline source maps, CJS polyfill duplication, and source string retention.
+// Precompile plugins to shared-helpers cache if cache is missing.
+const cacheDir = path.join(root, '.plugin-cache');
+if (!fs.existsSync(path.join(cacheDir, 'cjs-helpers.js'))) {
+  console.log('[run-tsx] Plugin cache missing, precompiling...');
+  const pre = spawnSync(process.execPath, [path.join(__dirname, 'precompile-plugins.cjs')], {
+    cwd: root, stdio: 'inherit',
+  });
+  if (pre.status !== 0) {
+    console.error('[run-tsx] Precompile failed, continuing with on-the-fly compilation');
+  }
+}
+
 const r = spawnSync(
   process.execPath,
   ['-r', 'tsconfig-paths/register', '-r', esbuildRegister, ...entryArgs],
