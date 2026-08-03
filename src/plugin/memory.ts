@@ -198,7 +198,7 @@ async function initHealthConfig() {
   }
   if ((db.data.configVersion ?? 0) < 4) {
     // v4: raise thresholds to match --max-old-space-size=512 (V8 heap) +
-    // PM2 max-memory-restart=512M (RSS guard). Old configs persisted 256/512
+    // PM2 max-memory-restart=768M (RSS guard). Old configs persisted 256/512
     // which triggered spurious soft-reloads at ~256 MB heap even though the
     // actual V8 limit is 512 MB.
     if ((db.data.memoryThreshold ?? 0) < DEFAULT_CONFIG.memoryThreshold) {

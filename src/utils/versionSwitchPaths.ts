@@ -1066,6 +1066,9 @@ export function pm2StartEdition(
   }
   // Also drop mis-pointed "telebox" if starting mtcute from old flat cwd, etc.
   const command = "exec node scripts/run-tsx.cjs ./src/index.ts";
+  // mtcute: heap=512MB + RSS threshold=768MB → PM2 restart at 768M
+  // teleproto: heap=192MB + RSS threshold=512MB → PM2 restart at 512M
+  const maxMemRestart = version === "mtcute" ? "768M" : "512M";
   runPm2(
     [
       "start",
@@ -1076,7 +1079,7 @@ export function pm2StartEdition(
       repoRoot,
       "--time",
       "--max-memory-restart",
-      "512M",
+      maxMemRestart,
       "--restart-delay",
       "5000",
       "--",

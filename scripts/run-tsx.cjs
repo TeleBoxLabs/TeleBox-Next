@@ -45,7 +45,7 @@ if (majorVersion >= 22) {
 // active channel hours). The native AES-IGE provider removes the WASM
 // linear memory (~100 MB) and mem.slice() churn.
 // 256 MB was too tight (heap hit 246/256 MB under load). 512 MB gives safety
-// margin while PM2's max-memory-restart=512M still guards against RSS runaway.
+// margin while PM2's max-memory-restart=768M still guards against RSS runaway.
 // Replace any existing --max-old-space-size to ensure our value takes effect.
 const heapFlag = '--max-old-space-size=512';
 let existingOpts = (env.NODE_OPTIONS || '').trim();
