@@ -1395,7 +1395,7 @@ async function showPluginRecords(msg: MessageContext, verbose?: boolean) {
 export async function updateAllPlugins(
   msg: MessageContext,
   opts?: { silent?: boolean; force?: boolean },
-): Promise<{ failedCount: number; statusPeerId?: any; statusMsgId?: number }> {
+): Promise<{ failedCount: number; statusPeerId?: number; statusMsgId?: number }> {
   const silent = !!opts?.silent;
   const force = !!opts?.force;
   let statusMsg: MessageContext = msg;
