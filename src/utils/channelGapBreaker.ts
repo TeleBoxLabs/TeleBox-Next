@@ -342,6 +342,7 @@ export async function recordChannelGapFailure(channelId: string, errorMsg?: stri
   // the full cooldown window.
   if (record.brokenAt && now - record.brokenAt < effectiveCooldown) {
     silentlyClearChannelPts(channelId);
+    updateCircuitBrokenCache();
     return;
   }
 
@@ -644,9 +645,22 @@ function tryGetClient(): unknown {
 export async function resetCircuitBreaker(): Promise<void> {
   await ensurePersistenceInitialized();
   const failures = getChannelFailures();
+  const now = Date.now();
   for (const [channelId, record] of failures) {
     record.timestamps = [];
-    record.brokenAt = null;
+    // Preserve brokenAt if still within cooldown — clearing it would defeat
+    // the exponential backoff. On every process restart, the first
+    // CHANNEL_INVALID for a broken channel would immediately re-circuit-break
+    // (because brokenAt=null skips the cooldown check at line 343), incrementing
+    // breakCount and re-logging the WARN — defeating the whole point of the
+    // cooldown window. Only clear brokenAt if the cooldown has already expired.
+    if (record.brokenAt != null) {
+      const effectiveCooldown = getEffectiveCooldown(record.breakCount);
+      if (now - record.brokenAt >= effectiveCooldown) {
+        record.brokenAt = null;
+      }
+      // else: still within cooldown — keep brokenAt to maintain protection
+    }
     // breakCount is intentionally preserved
     // If a channel's breakCount is stale (channel recovered), it only
     // matters if the channel starts failing again after reload — at which
