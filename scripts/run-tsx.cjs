@@ -52,6 +52,15 @@ let existingOpts = (env.NODE_OPTIONS || '').trim();
 existingOpts = existingOpts.replace(/--max-old-space-size=\d+/g, '').trim();
 env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlag}` : heapFlag;
 
+// Increase semi-space (new-space) size to prevent V8 new-space exhaustion
+// crashes at ~184 MB when --max-old-space-size=512. The semi-space default
+// is ~16 MB; raising to 128 MB lets the young generation absorb allocation
+// spikes without triggering repeated Mark-Compact cycles that eventually OOM.
+// Without this, the process crashes at 184 MB (<< 512 MB old-space limit).
+existingOpts = (env.NODE_OPTIONS || '').trim();
+existingOpts = existingOpts.replace(/--max-semi-space-size=\d+/g, '').trim();
+env.NODE_OPTIONS = existingOpts ? `${existingOpts} --max-semi-space-size=128` : '--max-semi-space-size=128';
+
 // Use esbuild-register instead of tsx to eliminate heap waste from
 // inline source maps, CJS polyfill duplication, and source string retention.
 // Precompile plugins to shared-helpers cache if cache is missing.
