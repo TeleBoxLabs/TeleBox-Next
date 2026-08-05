@@ -80,9 +80,17 @@ class LogLevelPlugin extends Plugin {
     try {
         const client = await getGlobalClient();
         const lvl = logger.getGramJSLogLevel?.();
-        const clientLog = (client as unknown as { log?: { level: string } })?.log;
-        if (client && typeof lvl === "string" && clientLog) {
-            clientLog.level = lvl;
+        const clientLog = (client as unknown as { log?: { mgr?: { level: number } } })?.log;
+        if (client && typeof lvl === "string" && clientLog?.mgr) {
+            // mtcute LogManager.level 是数字（0=OFF … 5=VERBOSE），不能赋值字符串
+            const levelMap: Record<string, number> = {
+                debug: 4,
+                info: 3,
+                warn: 2,
+                error: 1,
+                none: 0,
+            };
+            clientLog.mgr.level = levelMap[lvl] ?? 3;
         }
     } catch (e: unknown) {
       logger.error("[loglevel] 忽略客户端尚未初始化的错误:", e);
