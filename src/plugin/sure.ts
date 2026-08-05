@@ -213,7 +213,7 @@ async function handleMsgAddDel(
   action: "add" | "del",
   id?: string,
 ) {
-  let raw;
+  let raw: string | undefined;
   withSureDB((db) => {
     if (action === "add") {
       if (id) {
