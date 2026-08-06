@@ -210,11 +210,11 @@ const plugin = new (class extends Plugin {
       const sub = (parts[1] || "").toLowerCase();
 
       if (!sub || sub === "help") {
-        await msg.edit({ text: T.help() });
+        await msg.edit({ text: html(T.help()) });
         return;
       }
       if (sub === "status") {
-        await msg.edit({ text: T.status(loadSwitchState(DEFAULT_SWITCH_HOME)) });
+        await msg.edit({ text: html(T.status(loadSwitchState(DEFAULT_SWITCH_HOME))) });
         return;
       }
       if (
@@ -224,14 +224,14 @@ const plugin = new (class extends Plugin {
         sub === "password" ||
         sub === "revert"
       ) {
-        await msg.edit({ text: T.legacyRemoved() });
+        await msg.edit({ text: html(T.legacyRemoved()) });
         return;
       }
       if (sub === "go") {
         await this.handleGo(msg);
         return;
       }
-      await msg.edit({ text: T.unknownSub(sub) });
+      await msg.edit({ text: html(T.unknownSub(sub)) });
     },
   };
 
@@ -247,7 +247,7 @@ const plugin = new (class extends Plugin {
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
 
     if (!hasMtcuteNativeSession()) {
-      await msg.edit({ text: T.goNoSourceSession() });
+      await msg.edit({ text: html(T.goNoSourceSession()) });
       return;
     }
 
