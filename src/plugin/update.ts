@@ -646,9 +646,9 @@ export async function flushPendingReactions(): Promise<void> {
     } catch (err: unknown) {
       logger.warn("[auto-update] pending reaction still failing:", getErrorMessage(err) || err);
       const m = String(getErrorMessage(err) || err || "");
-      // Handle "You can't write in this chat" and similar permission errors
+      // Handle "You can't write in this chat", MESSAGE_ID_INVALID, and similar permission errors
       if (
-        /Cannot find any entity|No user has|PEER_ID_INVALID|CHAT_ID_INVALID|invalid reaction entity|You can't write in this chat|CHAT_WRITE_FORBIDDEN|FORBIDDEN/i.test(m)
+        /Cannot find any entity|No user has|PEER_ID_INVALID|CHAT_ID_INVALID|invalid reaction entity|MESSAGE_ID_INVALID|You can't write in this chat|CHAT_WRITE_FORBIDDEN|FORBIDDEN/i.test(m)
       ) {
         logger.info(`[auto-update] Skipping reaction for chat ${item.chatId}: no permission to write`);
         continue;
@@ -675,9 +675,9 @@ async function reactSuccessOnGithubMsg(
       return;
     } catch (e: unknown) {
       const m = String(getErrorMessage(e) || e || "");
-      // Handle "You can't write in this chat" and similar permission errors
+      // Handle "You can't write in this chat", MESSAGE_ID_INVALID, and similar permission errors
       if (
-        /Cannot find any entity|No user has|PEER_ID_INVALID|CHAT_ID_INVALID|invalid reaction entity|You can't write in this chat|CHAT_WRITE_FORBIDDEN|FORBIDDEN/i.test(m)
+        /Cannot find any entity|No user has|PEER_ID_INVALID|CHAT_ID_INVALID|invalid reaction entity|MESSAGE_ID_INVALID|You can't write in this chat|CHAT_WRITE_FORBIDDEN|FORBIDDEN/i.test(m)
       ) {
         logger.info(`[auto-update] Skipping reaction for chat ${chatId}: no permission to write`);
         return;
