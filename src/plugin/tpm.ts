@@ -259,25 +259,57 @@ function splitLongText(text: string, maxLength: number = MAX_MESSAGE_LENGTH): st
   const messages: string[] = [];
   const lines = text.split('\n');
   let currentMessage = '';
+  let inBlockquote = false;
 
   for (const line of lines) {
+    // Track blockquote state
+    if (line.includes('<blockquote')) {
+      inBlockquote = true;
+    }
+    if (line.includes('</blockquote>')) {
+      inBlockquote = false;
+    }
+
     if (line.length > maxLength) {
       if (currentMessage) {
+        // Close blockquote if open before pushing
+        if (inBlockquote) {
+          currentMessage += '</blockquote>';
+        }
         messages.push(currentMessage);
         currentMessage = '';
+        // Reopen blockquote in next message if we were in one
+        if (inBlockquote) {
+          currentMessage = '<blockquote expandable>';
+        }
       }
       for (let i = 0; i < line.length; i += maxLength) {
-        messages.push(line.substring(i, i + maxLength));
+        let chunk = line.substring(i, i + maxLength);
+        if (inBlockquote && i === 0) {
+          chunk = '<blockquote expandable>' + chunk;
+        }
+        if (inBlockquote && i + maxLength >= line.length) {
+          chunk = chunk + '</blockquote>';
+        }
+        messages.push(chunk);
       }
       continue;
     }
 
     if (currentMessage.length + line.length + 1 > maxLength) {
-      messages.push(currentMessage);
-      currentMessage = line;
-    } else {
-      currentMessage += (currentMessage ? '\n' : '') + line;
-    }
+          // Close blockquote if open before pushing
+          if (inBlockquote) {
+            currentMessage += '</blockquote>';
+          }
+          messages.push(currentMessage);
+          currentMessage = line;
+          // Reopen blockquote in next message if we were in one
+          if (inBlockquote && !line.includes('<blockquote')) {
+            currentMessage = '<blockquote expandable>' + currentMessage;
+          }
+        } else {
+          currentMessage += (currentMessage ? '\n' : '') + line;
+        }
   }
 
   if (currentMessage) {
