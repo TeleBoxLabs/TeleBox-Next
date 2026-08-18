@@ -283,12 +283,12 @@ function httpConnect(
         `CONNECT ${destHost}:${destPort} HTTP/1.1\r\n` +
         `Host: ${destHost}:${destPort}\r\n`;
       if (proxy.user) {
-                    const token = Buffer.from(
-                      `${proxy.user}:${proxy.password || ""}`,
-                      "utf8",
-                    ).toString("base64");
-                    req += `Proxy-Authorization: Basic ${token}\r\n`;
-                                      }
+              const token = Buffer.from(
+                `${proxy.user}:${proxy.password || ""}`,
+                "utf8",
+              ).toString("base64");
+              req += `Proxy-Authorization: Basic ${token}\r\n`;
+            }
       req += `Proxy-Connection: keep-alive\r\n\r\n`;
       socket.write(req);
     });
