@@ -6,6 +6,7 @@ import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { logger } from "@utils/logger";
 import { SureDB, type MsgRecord } from "@utils/sureDB";
 import { htmlEscape } from "@utils/htmlEscape";
+import { getErrorMessage } from "@utils/errorHelpers";
 import {
   dealCommandPluginWithMessage,
   getCommandFromMessage,
@@ -214,24 +215,30 @@ async function handleMsgAddDel(
   id?: string,
 ) {
   let raw: string | undefined;
-  withSureDB((db) => {
-    if (action === "add") {
-      if (id) {
-        raw = db.lsMsgs().find((m) => m.id === Number(id))?.msg;
-        if (!raw) throw new Error(`找不到 ID 为 ${id} 的消息`);
-        db.addMsg(raw, input);
+  try {
+    withSureDB((db) => {
+      if (action === "add") {
+        if (id) {
+          raw = db.lsMsgs().find((m) => m.id === Number(id))?.msg;
+          if (!raw) throw new Error(`找不到 ID 为 ${id} 的消息`);
+          db.addMsg(raw, input);
+        } else {
+          db.addMsg(input);
+        }
       } else {
-        db.addMsg(input);
+        const found = db.lsMsgs().find((m) => m.msg === input);
+        if (found) {
+          db.delMsg(found.id);
+        } else {
+          throw new Error(`找不到消息: ${input}`);
+        }
       }
-    } else {
-      const found = db.lsMsgs().find((m) => m.msg === input);
-      if (found) {
-        db.delMsg(found.id);
-      } else {
-        throw new Error(`找不到消息: ${input}`);
-      }
-    }
-  });
+    });
+  } catch (e: unknown) {
+    await msg.edit({ text: html`操作失败: ${htmlEscape(getErrorMessage(e))}` });
+    await msg.deleteWithDelay(5000);
+    return;
+  }
   sureCache.ts = 0; // 失效缓存
 
   await msg.edit({
