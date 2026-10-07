@@ -25,6 +25,9 @@ const nodeVersion = process.versions.node.split('.').map(Number);
 const majorVersion = nodeVersion[0];
 
 const esbuildRegister = path.join(__dirname, 'esbuild-register.cjs');
+// @mtcute ESM resolution hook — must load BEFORE app code so every
+// require('@mtcute/*') from project files hits the ESM builds.
+const mtcuteEsmHook = path.join(__dirname, 'mtcute-esm-resolve.cjs');
 const entryArgs = process.argv.slice(2);
 if (entryArgs.length === 0) {
   console.error('usage: node scripts/run-tsx.cjs <script.ts> [args...]');
@@ -77,7 +80,7 @@ if (!fs.existsSync(path.join(cacheDir, 'cjs-helpers.js'))) {
 
 const r = spawnSync(
   process.execPath,
-  ['-r', 'tsconfig-paths/register', '-r', esbuildRegister, ...entryArgs],
+  ['-r', mtcuteEsmHook, '-r', 'tsconfig-paths/register', '-r', esbuildRegister, ...entryArgs],
   { cwd: root, env, stdio: 'inherit' }
 );
 process.exit(r.status === null ? 1 : r.status);
